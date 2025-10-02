@@ -1,0 +1,8 @@
+# model_detection/configs/model_config.yaml
+weights: /absolute/path/to/best.pt   # hoặc yolov8n.pt khi chưa finetune
+imgsz: 640
+device: auto         # auto|cuda|mps|cpu
+conf_threshold: 0.25
+classes: null        # ví dụ [2,3] để chỉ car, motorbike; null = tất cả
+use_tracking: true   # true: model.track; false: model.predict
+names: [vehicle]
