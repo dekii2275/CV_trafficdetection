@@ -51,14 +51,26 @@ class YOLODetector:
             frame_idx+=1
         cap.release()
         return output_frames,all_detections
-    def draw_bboxes(self,video_frames,vehicle_detections):
-        output_video_frame=[]
-        for frame, vehicle_dict in zip(video_frames,vehicle_detections):
-            for item in vehicle_dict:
-                x1,y1,x2,y2=item['bbox']
-                track_id=item['id']
-                cv2.putText(frame,f"Vehicle ID: {track_id}",(int(x1),int(y1-10)),cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
-                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
-            output_video_frame.append(frame)
-        return output_video_frame
+    def draw_bboxes(frames, dets_per_frame, color=(0,0,255)):
+        drawn = []
+        for frame, dets in zip(frames, dets_per_frame):
+            for d in dets:
+                x1, y1, x2, y2 = d["bbox"]
+                track_id = d.get("id", None)
+                cls_name = d.get("class_name", str(d.get("cls")))
+                score = d.get("score", None)
+
+                label = f"{cls_name}"
+                if track_id is not None:
+                    label += f" #{track_id}"
+                if score is not None:
+                    label += f" {score:.2f}"
+
+                import cv2
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+                cv2.putText(frame, label, (int(x1), int(y1 - 10)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+            drawn.append(frame)
+        return drawn
+
 
