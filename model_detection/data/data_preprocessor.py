@@ -78,3 +78,53 @@ def compute_dataset_stats(images_dir, labels_dir, small_thr_px = 32) :
     return stats
 
 
+
+def clip_and_fix_boxes(labels_dir: str, min_box_wh: float = 1e-4) -> int:
+    #AI Code
+    """
+    Clamp các bbox YOLO-normalized về [0,1] và loại bỏ bbox invalid/quá nhỏ.
+    Trả về tổng số dòng nhãn bị sửa hoặc xóa.
+    """
+    def _clip01(x: float) -> float:
+        return 0.0 if x < 0.0 else (1.0 if x > 1.0 else x)
+
+    changed = 0
+    label_files = glob.glob(os.path.join(labels_dir, "**", "*.txt"), recursive=True)
+
+    for lf in label_files:
+        try:
+            with open(lf, "r") as f:
+                lines = [ln.strip() for ln in f.readlines() if ln.strip()]
+        except Exception:
+            continue
+
+        new_lines = []
+        for ln in lines:
+            parts = ln.split()
+            if len(parts) < 5:
+                changed += 1
+                continue
+            try:
+                cls = int(float(parts[0]))
+                x = _clip01(float(parts[1]))
+                y = _clip01(float(parts[2]))
+                w = _clip01(float(parts[3]))
+                h = _clip01(float(parts[4]))
+            except Exception:
+                changed += 1
+                continue
+
+            if w < min_box_wh or h < min_box_wh:
+                changed += 1
+                continue
+
+            fixed = f"{cls} {x:.6f} {y:.6f} {w:.6f} {h:.6f}"
+            if fixed != ln:
+                changed += 1
+            new_lines.append(fixed)
+
+        with open(lf, "w") as f:
+            f.write("\n".join(new_lines) + ("\n" if new_lines else ""))
+
+    return changed
+
