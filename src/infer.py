@@ -3,7 +3,16 @@ import json
 import time
 import cv2
 import yaml
+import sys
+import argparse
 from ultralytics import YOLO
+
+# Try to import yt_dlp for resolving YouTube stream URLs. It's optional but
+# recommended when the `source` in config is a YouTube link.
+try:
+    from yt_dlp import YoutubeDL
+except Exception:
+    YoutubeDL = None
 
 
 def load_cfg(path: str | None = None):
@@ -17,6 +26,40 @@ def load_cfg(path: str | None = None):
         return yaml.safe_load(f)
 
 
+def unsharp_mask(img, strength=1.0):
+    """Simple unsharp mask sharpening."""
+    blur = cv2.GaussianBlur(img, (0, 0), sigmaX=3)
+    sharp = cv2.addWeighted(img, 1.0 + strength, blur, -strength, 0)
+    return sharp
+
+
+def apply_clahe(img):
+    """Apply CLAHE on the L channel in LAB color space."""
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    l2 = clahe.apply(l)
+    lab2 = cv2.merge((l2, a, b))
+    return cv2.cvtColor(lab2, cv2.COLOR_LAB2BGR)
+
+
+def denoise(img):
+    """Fast non-local means denoising for color images."""
+    return cv2.fastNlMeansDenoisingColored(img, None, h=10, hColor=10, templateWindowSize=7, searchWindowSize=21)
+
+
+def preprocess_frame(frame, cfg):
+    pcfg = cfg.get("preprocess", {}) if cfg else {}
+    if pcfg.get("denoise", False):
+        frame = denoise(frame)
+    if pcfg.get("clahe", False):
+        frame = apply_clahe(frame)
+    if pcfg.get("sharpen", False):
+        frame = unsharp_mask(frame, strength=float(pcfg.get("sharpen_strength", 0.8)))
+    # Note: super-resolution (DNN) can be added later if desired
+    return frame
+
+
 def ensure_parent_dir(path: str) -> None:
     parent = os.path.dirname(path)
     if parent and not os.path.exists(parent):
@@ -24,7 +67,12 @@ def ensure_parent_dir(path: str) -> None:
 
 
 def main():
-    cfg = load_cfg()
+    parser = argparse.ArgumentParser(description="Traffic detection from YouTube link")
+    parser.add_argument("--test-stream", action="store_true", help="Resolve and test opening the YouTube stream, then exit")
+    parser.add_argument("--config", default=None, help="Path to config YAML")
+    args = parser.parse_args()
+
+    cfg = load_cfg(args.config)
 
     # Resolve repo root relative to this file
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -40,9 +88,102 @@ def main():
     save_output = bool(cfg["video"].get("save_output", True))
     output_path = cfg["video"].get("output", "data/output/result.mp4")
 
-    # Make paths absolute
-    if str(src) != "0":
-        src = resolve_repo_path(str(src))
+    # Require that the source is a YouTube link. This program is intended to
+    # only view video from YouTube links; other input types are rejected.
+    src_str = str(src).strip()
+    if not (src_str.startswith("http://") or src_str.startswith("https://")):
+        print("Error: this program only accepts YouTube HTTP/HTTPS URLs as `video.source` in config.")
+        print("Please set `video.source` to a YouTube link (e.g. https://www.youtube.com/watch?v=...) and try again.")
+        sys.exit(1)
+
+    if not ("youtube.com" in src_str or "youtu.be" in src_str):
+        print("Error: provided URL is not a YouTube link. This program only supports YouTube links.")
+        sys.exit(1)
+
+    # Resolve YouTube link to a direct playable stream URL using yt-dlp (must be installed)
+    if YoutubeDL is None:
+        print("Error: yt-dlp is not installed. Please install yt-dlp (pip install yt-dlp) to resolve YouTube streams.")
+        sys.exit(1)
+
+    def resolve_stream_url(url: str) -> str | None:
+        """Return a direct stream URL from a YouTube link using yt-dlp.
+
+        Strategy: prefer formats that contain both video and audio and use
+        http/https or HLS (m3u8). Prefer mp4/webm containers when possible.
+        """
+        try:
+            ydl_opts = {"quiet": True, "skip_download": True}
+            with YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception:
+            return None
+
+        formats = info.get("formats") or [info]
+        candidates = []
+        for f in formats:
+            f_url = f.get("url")
+            if not f_url:
+                continue
+            vcodec = f.get("vcodec")
+            acodec = f.get("acodec")
+            protocol = (f.get("protocol") or "").lower()
+            ext = (f.get("ext") or "").lower()
+            has_av = (vcodec and vcodec != "none") and (acodec and acodec != "none")
+            if not any(p in protocol for p in ("http", "https", "m3u8")):
+                continue
+            candidates.append((has_av, ext, protocol, f))
+
+        candidates.sort(key=lambda x: (not x[0], 0 if x[1] == "mp4" else 1, 0 if "http" in x[2] else 1))
+        if candidates:
+            chosen = candidates[0][3]
+            return chosen.get("url")
+        return info.get("url")
+
+    resolved = resolve_stream_url(src_str)
+    if resolved:
+        print(f"Resolved YouTube URL to stream: {resolved}")
+        src = resolved
+    else:
+        print("Error: could not resolve YouTube stream via yt-dlp.")
+        sys.exit(1)
+
+    # If user only wants to test stream opening, do it now and exit without loading the model
+    if args.test_stream:
+        print("--test-stream: testing cv2.VideoCapture on resolved URL...")
+        cap = None
+        try:
+            backends = [cv2.CAP_ANY]
+            if hasattr(cv2, "CAP_FFMPEG"):
+                backends.append(cv2.CAP_FFMPEG)
+            if hasattr(cv2, "CAP_GSTREAMER"):
+                backends.append(cv2.CAP_GSTREAMER)
+            ok_open = False
+            for b in backends:
+                cap = cv2.VideoCapture(src, b)
+                if cap is not None and cap.isOpened():
+                    ok_open = True
+                    break
+            if ok_open:
+                print("Stream opened successfully via OpenCV backend.")
+                # Try reading one frame
+                ret, frame = cap.read()
+                if ret:
+                    print("Read one frame successfully. Preprocessing test...")
+                    frame2 = preprocess_frame(frame, cfg)
+                    print("Preprocessing OK. Exiting.")
+                else:
+                    print("Warning: opened stream but failed to read a frame.")
+            else:
+                print("Failed to open stream with available OpenCV backends.")
+        except Exception as e:
+            print("Exception while testing stream:", e)
+        finally:
+            try:
+                if cap is not None:
+                    cap.release()
+            except Exception:
+                pass
+        return
     output_path = resolve_repo_path(str(output_path))
 
     model_path = resolve_repo_path(str(cfg["yolo"]["weights"]))

@@ -1,5 +1,5 @@
 video:
-  source: "data/input.webm"   # dùng "0" nếu muốn webcam
+  source: "https://www.youtube.com/live/CaMkzNXwVcE?si=w_jYUgjXNIeXqKQx"   # YouTube link (thay vì file local)
   output: "data/output/result.mp4"
   save_output: true
 

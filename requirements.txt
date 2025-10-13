@@ -2,3 +2,4 @@ ultralytics
 opencv-python 
 pyyaml 
 numpy
+yt-dlp
