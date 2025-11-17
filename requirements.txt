@@ -1,5 +1,9 @@
 ultralytics
-opencv-python 
-pyyaml 
+opencv-python
+pyyaml
 numpy
 yt-dlp
+pandas
+matplotlib
+seaborn
+python-dateutil

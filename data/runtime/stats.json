@@ -1,1 +1,11 @@
-{"timestamp": 1760322224.3915262, "fps": 6.2, "counts": {"motor": 26, "car": 7, "truck": 1, "bus": 1}, "total": 35}
+{"timestamp": 1760435740.23754, "fps": 7.4, "counts": {"car": 90,  "motor": 150}, "total": 240}
+{"timestamp": 1760435800.54823, "fps": 7.5, "counts": {"car": 95,  "motor": 155, "bus": 2}, "total": 252}
+{"timestamp": 1760435820.91284, "fps": 7.3, "counts": {"car": 100, "motor": 160, "bus": 10}, "total": 270}
+{"timestamp": 1760435880.13457, "fps": 7.2, "counts": {"car": 88,  "motor": 148, "truck": 1}, "total": 237}
+{"timestamp": 1760435940.78342, "fps": 7.4, "counts": {"car": 92,  "motor": 152, "bus": 17, "truck": 1}, "total": 252}
+{"timestamp": 1760436000.42985, "fps": 7.5, "counts": {"car": 105, "motor": 170, "bus": 3, "truck": 2}, "total": 280}
+{"timestamp": 1760436060.80513, "fps": 7.3, "counts": {"car": 98,  "motor": 160}, "total": 258}
+{"timestamp": 1760436120.21864, "fps": 7.2, "counts": {"car": 102, "motor": 165, "bus": 2}, "total": 269}
+{"timestamp": 1760436180.65743, "fps": 7.4, "counts": {"car": 110, "motor": 175, "bus": 4, "truck": 3}, "total": 292}
+{"timestamp": 1760436240.34128, "fps": 7.3, "counts": {"car": 97,  "motor": 158, "truck": 1}, "total": 256}
+{"timestamp": 1760436290.34128, "fps": 7.5, "counts": {"car": 100,  "motor": 160, "truck": 1}, "total": 261}
