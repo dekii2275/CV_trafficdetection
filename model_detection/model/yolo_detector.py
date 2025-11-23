@@ -3,6 +3,18 @@ import cv2
 class YOLODetector:
     def __init__(self,model_path,device='auto'):
         self.model=YOLO(model_path)
+        # Map class id -> name (Ultralytics stores in model.names)
+        try:
+            names = getattr(self.model, "names", None)
+            # names can be dict like {0: 'Bus', 1: 'Car', ...} or list
+            if isinstance(names, dict):
+                self.class_names = {int(k): str(v) for k, v in names.items()}
+            elif isinstance(names, (list, tuple)):
+                self.class_names = {i: str(n) for i, n in enumerate(names)}
+            else:
+                self.class_names = {}
+        except Exception:
+            self.class_names = {}
         self.set_device(device)
     def set_device(self,device):
         self.device=device
@@ -14,13 +26,16 @@ class YOLODetector:
         for box in results.boxes:
             track_id=int(box.id.tolist()[0])
             result=box.xyxy.tolist()[0]
-            object_cls_id=box.cls.tolist()[0]
+            object_cls_id=int(box.cls.tolist()[0])
             score = float(box.conf.tolist()[0])
             if (score >=conf_threshold):
+                # Resolve class name from mapping; fallback to id string
+                class_name = self.class_names.get(object_cls_id, str(object_cls_id))
                 vehicle_dict.append({
                 "id": track_id,
                 "bbox": result,
                 "cls": object_cls_id,
+                "class_name": class_name,
                 "score": score
                 })
         return vehicle_dict

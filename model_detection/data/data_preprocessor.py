@@ -1,10 +1,12 @@
 import os, glob, json
-from typing import Dict, List, Tuple
 from collections import Counter
 import cv2
 import numpy as np
 import yaml
 import pathlib
+import matplotlib.pyplot as plt
+from pathlib import Path
+import random
 def load_data_set(data_path):
     with open (data_path,"r") as f:
         cfg = yaml.safe_load(f)
@@ -128,3 +130,121 @@ def clip_and_fix_boxes(labels_dir: str, min_box_wh: float = 1e-4) -> int:
 
     return changed
 
+def remap_yolo_labels(
+    base_dirs,
+    id_map={5: 0, 6: 1, 7: 2, 4: 3},
+):
+    """
+    Remap label IDs trong file YOLO:
+    - Mapping cũ → mới theo id_map
+    - Các ID không nằm trong id_map sẽ bị cảnh báo
+    - Ghi đè trực tiếp file gốc
+    """
+
+    unknown_ids = set()
+    total_files = 0
+
+    for base in base_dirs:
+        for file_path in glob.glob(f"{base}/*.txt"):
+            new_lines = []
+
+            with open(file_path, "r") as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if not parts:
+                        continue
+
+                    # Lấy ID cũ
+                    try:
+                        old_id = int(float(parts[0]))
+                    except:
+                        print(f"⚠️ Lỗi ID trong file: {file_path} → dòng: {line.strip()}")
+                        continue
+
+                    # Áp dụng map
+                    if old_id in id_map:
+                        new_id = id_map[old_id]
+                    else:
+                        # Nếu ID không có trong map → cảnh báo
+                        unknown_ids.add(old_id)
+                        new_id = old_id  # hoặc bỏ qua tùy bạn
+
+                    # Ghi lại dòng
+                    parts[0] = str(new_id)
+                    new_lines.append(" ".join(parts) + "\n")
+
+            # Ghi đè file
+            with open(file_path, "w") as f:
+                f.writelines(new_lines)
+
+            total_files += 1
+
+    print(f"✅ Đã cập nhật {total_files} file label.")
+    if unknown_ids:
+        print(f"⚠️ Các ID không có trong mapping (không được đổi): {unknown_ids}")
+def visualize_image_with_bbox(image_path, label_path, bbox_line, class_names):
+    "
+    img = cv2.imread(str(image_path))
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    h, w = img_rgb.shape[:2]
+    
+    parts = bbox_line.split()
+    cls_id = int(float(parts[0]))
+    x_center = float(parts[1])
+    y_center = float(parts[2])
+    bbox_w = float(parts[3])
+    bbox_h = float(parts[4])
+    
+   
+    x = (x_center - bbox_w / 2) * w
+    y = (y_center - bbox_h / 2) * h
+    width = bbox_w * w
+    height = bbox_h * h
+    
+    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+    ax.imshow(img_rgb)
+    
+    rect = plt.Rectangle((x, y), width, height, 
+                        linewidth=3, edgecolor='lime', facecolor='none')
+    ax.add_patch(rect)
+    
+    class_name = class_names[cls_id] if cls_id < len(class_names) else f"Class {cls_id}"
+    ax.text(x, y - 10, f"{class_name} (ID: {cls_id})", 
+           color='lime', fontsize=12, weight='bold',
+           bbox=dict(boxstyle='round', facecolor='black', alpha=0.7))
+    
+    ax.set_title(f"Class: {class_name} - {image_path.name}", fontsize=14, weight='bold')
+    ax.axis('off')
+    plt.tight_layout()
+    plt.show()
+def get_one_image_per_class(images_dir, labels_dir, class_names):
+   
+    images_dir = Path(images_dir)
+    labels_dir = Path(labels_dir)
+    
+    class_samples = {}  
+    
+    
+    for label_file in labels_dir.glob("*.txt"):
+        image_file = images_dir / (label_file.stem + ".jpg")
+        if not image_file.exists():
+            continue
+            
+        with open(label_file, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) != 5:
+                    continue
+                
+                cls_id = int(float(parts[0]))
+                
+                if cls_id not in class_samples:
+                    class_samples[cls_id] = (image_file, label_file, line.strip())
+                    
+                if len(class_samples) == len(class_names):
+                    break
+        
+        if len(class_samples) == len(class_names):
+            break
+    
+    return class_samples
