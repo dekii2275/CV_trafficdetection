@@ -183,7 +183,7 @@ def remap_yolo_labels(
     if unknown_ids:
         print(f"⚠️ Các ID không có trong mapping (không được đổi): {unknown_ids}")
 def visualize_image_with_bbox(image_path, label_path, bbox_line, class_names):
-    "
+    
     img = cv2.imread(str(image_path))
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     h, w = img_rgb.shape[:2]
