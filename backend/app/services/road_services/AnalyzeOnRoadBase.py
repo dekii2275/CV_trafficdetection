@@ -1,14 +1,45 @@
+import os
 from abc import abstractmethod
 import cvzone
 import cv2
-import os
 import numpy as np
 from datetime import datetime
 from ultralytics import solutions
-from utils.transport_utils import *
-from core.config import settings_metric_transport
+from app.utils.transport_utils import avg_none_zero_batch
+from app.core.config import settings_metric_transport
+from cap_from_youtube import cap_from_youtube
+import yt_dlp
+
 # Thêm cái này để tránh xung đột
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+def get_stream_url(youtube_url):
+    """
+    Lấy direct stream URL chất lượng 'best' từ YouTube bằng yt_dlp.
+    Không fallback.
+    """
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "format": "best", 
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=False)
+            url = info.get("url", None)
+
+            if url:
+                print("Lấy stream thành công ở chất lượng: best")
+                return url
+
+    except Exception as e:
+        print(f"Không lấy được stream YouTube: {e}")
+
+    print("Không lấy được stream 'best'!")
+    return None
+
+
 
 class AnalyzeOnRoadBase:
     """Class gói gọn script xử lý tuần tự nhưng đảm bảo tính đóng gói OOP
@@ -32,7 +63,7 @@ class AnalyzeOnRoadBase:
             >>> )
             >>> analyzer.process_on_single_video()
     """
-    def __init__(self, path_video = "./video_test/Đường Láng.mp4", meter_per_pixel = 0.06,
+    def __init__(self, path_video, meter_per_pixel = 0.06,
                  model_path= settings_metric_transport.MODELS_PATH, time_step=30,
                  is_draw=True, device= settings_metric_transport.DEVICE, iou=0.3, conf=0.2, show=False,
                  region = np.array([[50, 400], [50, 265], [370, 130], [600, 130], [600, 400]])):
@@ -70,7 +101,7 @@ class AnalyzeOnRoadBase:
 
         self.show = show
         self.path_video = path_video
-        self.name = path_video.split('/')[-1][:-4]
+        self.name = "Youtube_Stream" if "http" in path_video else path_video.split('/')[-1][:-4]
 
         self.count_car_display = 0
         self.list_count_car = []
@@ -91,8 +122,8 @@ class AnalyzeOnRoadBase:
         self.time_pre_for_fps = datetime.now()
 
         # ROI
-        self.roi_y_start = 130
-        self.roi_x_start = 50
+        self.roi_y_start = 0
+        self.roi_x_start = 0
 
         # Draw
         self.font = cv2.FONT_HERSHEY_SIMPLEX
@@ -310,71 +341,79 @@ class AnalyzeOnRoadBase:
             print(f"Lỗi khi vẽ: {e}")
 
     def process_on_single_video(self):
-        """Hàm này sẽ được gọi để xử lý video bằng việc đọc từng frame và xử lý từng frame một"""
-        cam = cv2.VideoCapture(self.path_video)
+        """Xử lý livestream YouTube bằng yt_dlp."""
+        
+        # Lấy URL stream
+        stream_url = get_stream_url(self.path_video)
 
-        if not cam.isOpened():
-            print(f'Không thể mở video: {self.path_video}')
+        if stream_url is None:
+            print("Không thể lấy stream YouTube. Dừng lại.")
             return
 
-        target_size = (600, 400)
+        cam = cv2.VideoCapture(stream_url)
+
+        if not cam.isOpened():
+            print(f"Không thể mở livestream: {self.path_video}")
+            return
 
         try:
             while True:
-                check, cap = cam.read()
+                ok, frame = cam.read()
+                if not ok:
+                    print("Livestream ngắt hoặc không đọc được frame.")
+                    break
 
-                if not check:
-                    print(f'Kết thúc video: {self.path_video}')
-                    # Restart video để loop
-                    cam.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    continue
+                frame = cv2.resize(frame, (1280, 720))
 
-                cap = cv2.resize(cap, target_size)
-
-                # FPS calculation - optimized
                 time_now = datetime.now()
-                delta_time = (time_now - self.time_pre_for_fps).total_seconds()
-                fps = round(1 / delta_time) if delta_time > 0 else 0
+                delta = (time_now - self.time_pre_for_fps).total_seconds()
+                fps = round(1 / delta) if delta > 0 else 0
                 self.time_pre_for_fps = time_now
 
-                cvzone.putTextRect(cap, f"FPS: {fps}",
-                                 (516, 20),
-                                 scale=1.1, thickness=2,
-                                 colorT=(0, 255, 100),
-                                 colorR=(50, 50, 50),
-                                 border=2,
-                                 colorB=(255, 255, 255))
+                # Vẽ FPS
+                cvzone.putTextRect(
+                    frame, f"FPS: {fps}", (50, 50),
+                    scale=1.1, thickness=2,
+                    colorT=(0, 255, 100),
+                    colorR=(50, 50, 50),
+                    border=2,
+                    colorB=(255, 255, 255),
+                )
 
-                # Xử lý từng frame
-                self.process_single_frame(cap)
+                self.process_single_frame(frame)
 
-                # Hiển thị frame nếu show là True
+                # ====== Hiển thị ======
                 if self.show:
-                    cv2.imshow(f'{self.name}', self.frame_output)
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                    cv2.imshow(f"{self.name}", self.frame_output)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
 
         except KeyboardInterrupt:
-            print(f"Đã dừng xử lý {self.name}")
+            print("⛔ Người dùng dừng livestream.")
+
         except Exception as e:
-            print(f"Lỗi khi xử lý {self.name}: {e}")
+            print(f"❌ Lỗi livestream: {e}")
+
         finally:
-            # Giải phóng tài nguyên
             cam.release()
             if self.show:
                 cv2.destroyAllWindows()
 
-#************************************************************************ Script for testing *******************************************************
+
+
+
+#************************** Script for testing ***************************************
 if __name__ == "__main__":
     # Example usage
-    path_video = settings_metric_transport.PATH_VIDEOS[3]
-    meter_per_pixel = settings_metric_transport.METER_PER_PIXELS[3]
+    path_video = settings_metric_transport.PATH_VIDEOS[0]
+    meter_per_pixel = settings_metric_transport.METER_PER_PIXELS[0]
+    region = settings_metric_transport.REGIONS[0]
 
     analyzer = AnalyzeOnRoadBase(
         path_video=path_video,
         meter_per_pixel=meter_per_pixel,
-        region=settings_metric_transport.REGIONS[3],
+        region=region,
         show=True
     )
-
+    
     analyzer.process_on_single_video()

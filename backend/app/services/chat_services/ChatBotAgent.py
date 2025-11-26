@@ -1,11 +1,11 @@
 import dotenv
-from services.chat_services.tool_func import get_frame_road, get_info_road
+from app.services.chat_services.tool_func import get_frame_road, get_info_road
 from langchain.agents import create_agent
 from langgraph.prebuilt import create_react_agent
-from core.config import setting_chatbot
+from app.core.config import settings_chat_bot
 from langgraph.checkpoint.memory import InMemorySaver
-from schemas.ChatResponse import ChatResponse
-from utils.chatbot_utils import pre_model_hook
+from app.schemas.ChatResponse import ChatResponse
+from app.utils.chatbot_utils import pre_model_hook
 
 
 prompt = """Bạn là một trợ lý AI chuyên tư vấn giao thông bằng TIẾNG VIỆT.
@@ -44,7 +44,7 @@ dotenv.load_dotenv()
 class ChatBotAgent:
     def __init__(self):
         self.prompt = prompt
-        self.llm = setting_chatbot.LLM
+        self.llm = settings_chat_bot.LLM
         self.checkpointer = InMemorySaver()
         self.agent = create_react_agent(model= self.llm, 
                                 tools= [get_frame_road, get_info_road], 

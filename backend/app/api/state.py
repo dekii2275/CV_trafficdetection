@@ -1,7 +1,5 @@
-from services.AnalyzeOnRoadForMultiProcessing import AnalyzeOnRoadForMultiprocessing
-from services.ChatBotAgent import ChatBotAgent
-from services import AnalyzeOnRoadForMultiProcessing
-
+from app.services.road_services.AnalyzeOnRoad import AnalyzeOnRoad
+from app.services.chat_services.ChatBotAgent import ChatBotAgent
 
 # Phần gắn tạm để gợi ý code
 # analyzer = AnalyzeOnRoadForMultiprocessing(show= False,

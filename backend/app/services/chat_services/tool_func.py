@@ -1,8 +1,8 @@
 import json
 from langchain_core.tools import tool
 from typing import Annotated
-from core.config import settings_network
-from api.v1 import state
+from app.core.config import settings_network
+from app.api import state
 BASE_URL = f"{settings_network.BASE_URL_API}/api/v1"
 
 @tool

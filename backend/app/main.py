@@ -2,15 +2,15 @@ import os
 import sys
 import signal
 from fastapi import FastAPI
-from api import v1
+from app.api import state
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import RedirectResponse
-from db.base import create_tables
-from core.config import settings_network
+from app.db.base import create_tables
+from app.core.config import settings_network
+from app.api import api_vehicles, api_chatbot, chat_history
 
 os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
 os.environ["OPENCV_VIDEOIO_PRIORITY_DSHOW"] = "1"
-
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
@@ -23,8 +23,6 @@ app = FastAPI(
     - Real-time video streaming và phân tích giao thông
     - AI Chatbot hỗ trợ thông tin giao thông
     - Analytics và metrics về lưu lượng xe
-    - User authentication và management
-    - Admin tools và system monitoring
     
     """,
     version="1.0.0",
@@ -48,8 +46,8 @@ app.add_middleware(
 def signal_handler(signum, frame):
     """Xử lý Ctrl+C"""
     print("\nĐang shutdown server...")
-    if v1.state.analyzer:
-        v1.state.analyzer.cleanup_processes()
+    if state.analyzer:
+        state.analyzer.cleanup_processes()
     sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -70,8 +68,8 @@ async def startup_event():
 @app.on_event("shutdown")
 def shutdown():
     print("Tắt mọi thứ...")
-    if v1.state.analyzer:
-        v1.state.analyzer.cleanup_processes()
+    if state.analyzer:
+        state.analyzer.cleanup_processes()
 
 @app.get(
     path='/',
@@ -83,32 +81,18 @@ def direct_home():
     return RedirectResponse(url= settings_network.URL_FRONTEND)
 
 app.include_router(
-    router= v1.api_auth.router, 
-    prefix="/api/v1", 
-    tags=["Authentication"],
-)
-app.include_router(
-    router= v1.api_user.router, 
-    prefix="/api/v1/users", 
-    tags=["User Management"],
-)
-app.include_router(
-    router= v1.api_vehicles_frames.router, 
+    router= api_vehicles.router, 
     prefix="/api/v1", 
     tags=["Traffic Monitoring"],
 )
 app.include_router(
-    router= v1.api_chatbot.router, 
+    router= api_chatbot.router, 
     prefix="/api/v1", 
     tags=["AI Chatbot"],
 )
 app.include_router(
-    router= v1.chat_history.router,
+    router=chat_history.router,
     prefix="/api/v1/chat",
     tags=["Chat History"],
 )
-app.include_router(
-    router= v1.api_admin.router,
-    prefix="/api/v1", 
-    tags=["Admin Tools"],
-)
+

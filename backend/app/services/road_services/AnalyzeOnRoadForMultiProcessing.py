@@ -1,6 +1,6 @@
 from multiprocessing import Process, Manager, freeze_support
 import os
-import AnalyzeOnRoad
+from services.road_services.AnalyzeOnRoad import AnalyzeOnRoad
 from core.config import settings_metric_transport
 from utils.transport_utils import convert_frame_to_byte, log
 import signal

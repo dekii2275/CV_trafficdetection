@@ -13,4 +13,4 @@ sqlalchemy[asyncio]
 langchain
 langchain_google_genai
 langgraph
-python-telegram-bot
+asyncpg
