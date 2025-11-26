@@ -1,50 +1,78 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 import asyncio
-
 from app.api import state
 from app.core.config import settings_metric_transport
 from app.services.road_services.AnalyzeOnRoad import AnalyzeOnRoad
 from app.utils.transport_utils import enrich_info_with_thresholds
+import threading
+import traceback
 
 router = APIRouter()
 
+
 def start_analyzer_single_thread():
-    """
-    Khởi tạo Analyzer chạy 1 luồng (không multiprocessing).
-    Chạy trong 1 thread phụ để không block event loop của FastAPI.
-    """
     if state.analyzer is not None:
+        print("Analyzer đã được khởi tạo trước đó → bỏ qua.")
         return
 
     print("Khởi tạo Analyzer (single-thread)...")
 
-    analyzer = AnalyzeOnRoad(
-        path_video=settings_metric_transport.PATH_VIDEOS[0],
-        meter_per_pixel=settings_metric_transport.METER_PER_PIXELS[0],
-        region=settings_metric_transport.REGIONS[0],
-        show=False
-    )
-    state.analyzer = analyzer
+    try:
+        analyzer = AnalyzeOnRoad(
+            path_video=settings_metric_transport.PATH_VIDEOS[0],
+            meter_per_pixel=settings_metric_transport.METER_PER_PIXELS[0],
+            region=settings_metric_transport.REGIONS[0],
+            show=False
+        )
 
-    import threading
-    thread = threading.Thread(target=analyzer.process_on_single_video, daemon=True)
-    thread.start()
+        state.analyzer = analyzer
 
-    print("Analyzer đã chạy trong background thread.")
+        worker = threading.Thread(
+            target=analyzer.process_on_single_video,
+            daemon=False
+        )
+        worker.start()
 
+        state.worker_thread = worker   
+
+        print("Analyzer đã chạy trong background thread.")
+
+    except Exception as e:
+        print("Lỗi khi khởi tạo Analyzer:", e)
+        traceback.print_exc()
+        state.analyzer = None
 
 @router.on_event("startup")
 def startup_event():
+    """
+    Sự kiện startup của FastAPI.
+    """
     start_analyzer_single_thread()
 
+@router.on_event("shutdown")
+def shutdown_event():
+    print("FastAPI shutdown → chuẩn bị dừng Analyzer...")
 
-# ========================== API ENDPOINTS ==========================
+    if state.analyzer:
+        try:
+            state.analyzer.stop()    
+            print("Đã bật stop_flag cho Analyzer.")
+        except:
+            pass
+        
+    if hasattr(state, "worker_thread"):
+        t = state.worker_thread
+        if t.is_alive():
+            print("Đang chờ thread xử lý livestream dừng...")
+            t.join(timeout=5)
+
+    print("Shutdown hoàn tất.")
 
 @router.get("/roads_name")
 async def get_road_names():
     """Trả về danh sách tên các đường."""
-    return {"road_names": state.analyzer.names}
+    return {"road_names": [state.analyzer.name]}
 
 
 @router.get("/info/{road_name}")

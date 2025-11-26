@@ -20,8 +20,12 @@ class AnalyzeOnRoad(AnalyzeOnRoadBase):
         conf=0.2,
         show=False
     ):
+        """
+        Wrapper kế thừa từ AnalyzeOnRoadBase.
+        Thêm STOP FLAG giúp dừng livestream khi FastAPI shutdown hoặc Ctrl+C.
+        """
 
-        # Nếu không truyền từ API → dùng config
+        # ========= DEFAULT PARAMS ==========
         if path_video is None:
             path_video = settings_metric_transport.PATH_VIDEOS[0]
 
@@ -31,6 +35,7 @@ class AnalyzeOnRoad(AnalyzeOnRoadBase):
         if region is None:
             region = settings_metric_transport.REGIONS[0]
 
+        # ===================================
         super().__init__(
             path_video=path_video,
             meter_per_pixel=meter_per_pixel,
@@ -44,8 +49,25 @@ class AnalyzeOnRoad(AnalyzeOnRoadBase):
             region=region
         )
 
+        # === FLAG DỪNG VÒNG LẶP ===
+        self.stop_flag = False
+
+    # ===============================
+    # Các hook update (bạn chưa dùng)
+    # ===============================
     def update_for_frame(self):
         pass
 
     def update_for_vehicle(self):
         pass
+
+    # ===============================
+    # 🚨 HÀM DỪNG ANALYZER
+    # ===============================
+    def stop(self):
+        """
+        Dừng vòng lặp livestream an toàn.
+        Được gọi từ FastAPI shutdown event.
+        """
+        print("Stopping AnalyzeOnRoad...")
+        self.stop_flag = True

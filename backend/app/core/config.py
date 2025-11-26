@@ -42,7 +42,7 @@ class SettingMetricTransport:
     # Tính toán đường dẫn tuyệt đối để tránh lỗi "File not found"
     # Logic: Từ file config.py đi ngược ra root project -> vào folder models
     BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent # Ra đến thư mục project_name
-    MODELS_PATH = os.path.join(BASE_DIR, 'models', 'traffic_best_new.pt')
+    MODELS_PATH = os.path.join(BASE_DIR, 'models', 'best.pt')
 
     # Chuyển sang 'cuda' nếu máy bạn có GPU NVIDIA, nếu không thì để 'cpu'
     DEVICE = 'cpu' 

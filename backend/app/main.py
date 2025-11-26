@@ -27,11 +27,7 @@ app = FastAPI(
     """,
     version="1.0.0",
     docs_url="/docs",  
-    redoc_url="/redoc", 
-    contact={
-        "name": "Lê Việt Anh",
-        "email": "levietanhtrump@gmail.com",
-    },
+    redoc_url="/redoc"
     
 )
 
@@ -42,16 +38,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+def graceful_shutdown(signum, frame):
+    print("\nĐang shutdown server ...")
 
-def signal_handler(signum, frame):
-    """Xử lý Ctrl+C"""
-    print("\nĐang shutdown server...")
     if state.analyzer:
-        state.analyzer.cleanup_processes()
-    sys.exit(0)
+        try:
+            state.analyzer.stop_flag = True
+            print("Đã yêu cầu Analyzer dừng.")
+        except:
+            print("Analyzer không hỗ trợ stop_flag hoặc chưa khởi tạo.")
 
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, graceful_shutdown)
+signal.signal(signal.SIGTERM, graceful_shutdown)
 
 
 @app.on_event("startup")
@@ -67,9 +65,14 @@ async def startup_event():
 
 @app.on_event("shutdown")
 def shutdown():
-    print("Tắt mọi thứ...")
+    print("FastAPI shutdown...")
+
     if state.analyzer:
-        state.analyzer.cleanup_processes()
+        try:
+            state.analyzer.stop_flag = True
+            print("Đã bật stop_flag cho Analyzer.")
+        except:
+            pass
 
 @app.get(
     path='/',

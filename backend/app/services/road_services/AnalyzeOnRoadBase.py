@@ -93,7 +93,7 @@ class AnalyzeOnRoadBase:
             meter_per_pixel=meter_per_pixel,
             max_hist=20
         )
-
+        self.stop_flag = False
         self.region = region
         self.region_pts = region.reshape((-1, 1, 2))
         # Bounding box (x, y, w, h) for fast pre-filtering before polygon test
@@ -102,7 +102,7 @@ class AnalyzeOnRoadBase:
         self.show = show
         self.path_video = path_video
         self.name = "Youtube_Stream" if "http" in path_video else path_video.split('/')[-1][:-4]
-
+        self.names = [self.name]
         self.count_car_display = 0
         self.list_count_car = []
         self.speed_car_display = 0
@@ -146,7 +146,11 @@ class AnalyzeOnRoadBase:
     @abstractmethod
     def update_for_vehicle(self):
         pass
-
+    
+    def stop(self):
+        print("AnalyzeOnRoadBase: stop flag ON")
+        self.stop_flag = True
+    
     def update_data(self):
         """Hàm này sẽ được gọi để cập nhật dữ liệu cho frame và thông tin phương tiện sau một khoảng thời gian
             đã thiết lập là time_step"""
@@ -216,52 +220,75 @@ class AnalyzeOnRoadBase:
             print(f"Lỗi khi xử lý với file {self.name}: {e}")
 
     def post_processing(self):
-        if self.speed_tool.track_data is not None:
-            # Batch convert to numpy một lần (giảm nhiều lần truy cập thuộc tính)
-            track_data = self.speed_tool.track_data
-            speeds_dict = self.speed_tool.spd  # dict: id -> speed
+        # Lấy track_data một lần
+        track_data = self.speed_tool.track_data
 
+        # Không có track nào ⇒ thoát luôn
+        if track_data is None:
+            return
+
+        # Đảm bảo có đầy đủ thuộc tính id, cls, xyxy và không phải None
+        if (
+            getattr(track_data, "id", None) is None or
+            getattr(track_data, "cls", None) is None or
+            getattr(track_data, "xyxy", None) is None
+        ):
+            # Trường hợp SpeedEstimator in "no tracks found!" nhưng track_data tồn tại dạng rỗng
+            return
+
+        # Batch convert to numpy một lần (giảm nhiều lần truy cập thuộc tính)
+        try:
             ids = track_data.id.cpu().numpy().astype(np.int32)
             classes = track_data.cls.cpu().numpy().astype(np.int32)
             boxes = track_data.xyxy.cpu().numpy().astype(np.int32)
+        except Exception as e:
+            # Phòng khi có gì đó still None / shape lạ
+            print(f"Lỗi khi đọc track_data: {e}")
+            return
 
-            # Lưu vào thuộc tính phục vụ vẽ
-            self.speeds = speeds_dict
-            self.ids = ids
-            self.classes = classes
-            self.boxes = boxes
+        # Nếu không có box nào thì thôi
+        if ids.size == 0:
+            return
 
-            # Đếm mật độ tức thời
-            car_mask = (classes == 0)
-            motor_mask = (classes == 1)
-            self.list_count_car.append(int(np.sum(car_mask)))
-            self.list_count_motor.append(int(np.sum(motor_mask)))
+        speeds_dict = self.speed_tool.spd  # dict: id -> speed
 
-            car_ids = ids[car_mask]
-            motor_ids = ids[motor_mask]
-            ids_old = self.ids_old
+        # Lưu vào thuộc tính phục vụ vẽ
+        self.speeds = speeds_dict
+        self.ids = ids
+        self.classes = classes
+        self.boxes = boxes
 
-            def collect_speeds(new_ids: np.ndarray):
-                if new_ids.size == 0:
-                    return []
-                if ids_old:
-                    mask_new = ~np.isin(new_ids, list(ids_old), assume_unique=False)
-                    new_ids = new_ids[mask_new]
-                if new_ids.size == 0:
-                    return []
-                spd_arr = np.array([speeds_dict.get(int(i), 0.0) for i in new_ids], dtype=np.float32)
-                valid_mask = spd_arr > 0.0
-                if not np.any(valid_mask):
-                    return []
-                ids_old.update(new_ids[valid_mask].tolist())
-                return spd_arr[valid_mask].tolist()
+        # Đếm mật độ tức thời
+        car_mask = (classes == 0)
+        motor_mask = (classes == 1)
+        self.list_count_car.append(int(np.sum(car_mask)))
+        self.list_count_motor.append(int(np.sum(motor_mask)))
 
-            car_speeds = collect_speeds(car_ids)
-            motor_speeds = collect_speeds(motor_ids)
-            if car_speeds:
-                self.list_speed_car.extend(car_speeds)
-            if motor_speeds:
-                self.list_speed_motor.extend(motor_speeds)
+        car_ids = ids[car_mask]
+        motor_ids = ids[motor_mask]
+        ids_old = self.ids_old
+
+        def collect_speeds(new_ids: np.ndarray):
+            if new_ids.size == 0:
+                return []
+            if ids_old:
+                mask_new = ~np.isin(new_ids, list(ids_old), assume_unique=False)
+                new_ids = new_ids[mask_new]
+            if new_ids.size == 0:
+                return []
+            spd_arr = np.array([speeds_dict.get(int(i), 0.0) for i in new_ids], dtype=np.float32)
+            valid_mask = spd_arr > 0.0
+            if not np.any(valid_mask):
+                return []
+            ids_old.update(new_ids[valid_mask].tolist())
+            return spd_arr[valid_mask].tolist()
+
+        car_speeds = collect_speeds(car_ids)
+        motor_speeds = collect_speeds(motor_ids)
+        if car_speeds:
+            self.list_speed_car.extend(car_speeds)
+        if motor_speeds:
+            self.list_speed_motor.extend(motor_speeds)
 
 
     def draw_info_to_frame_output(self):
@@ -357,13 +384,15 @@ class AnalyzeOnRoadBase:
             return
 
         try:
-            while True:
+            while not self.stop_flag:
                 ok, frame = cam.read()
+                if self.stop_flag:
+                    break
                 if not ok:
                     print("Livestream ngắt hoặc không đọc được frame.")
                     break
 
-                frame = cv2.resize(frame, (1280, 720))
+                frame = cv2.resize(frame, (640, 360))
 
                 time_now = datetime.now()
                 delta = (time_now - self.time_pre_for_fps).total_seconds()
@@ -389,10 +418,10 @@ class AnalyzeOnRoadBase:
                         break
 
         except KeyboardInterrupt:
-            print("⛔ Người dùng dừng livestream.")
+            print("Nhận Ctrl + C, đang dừng livestream...")
 
         except Exception as e:
-            print(f"❌ Lỗi livestream: {e}")
+            print(f"Lỗi livestream: {e}")
 
         finally:
             cam.release()
