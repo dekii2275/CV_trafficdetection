@@ -10,18 +10,52 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import json
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
+import os
+import tempfile
 from load_data import load_and_normalize, DEFAULT_CLASSES
 
-def load_recent_stats(stats_path, minutes=10, classes=None):
+
+def read_tail_lines(path: str, n: int = 1000):
+    """Đọc nhanh N dòng cuối của file (binary-safe). Trả về list các dòng (chuỗi).
+
+    Mục đích: tránh đọc toàn bộ file khi file `stats.json` lớn.
+    """
+    lines = []
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        file_size = f.tell()
+        block_size = 4096
+        data = b""
+        pos = file_size
+        # đọc lùi tới khi đủ số dòng hoặc tới đầu file
+        while pos > 0 and len(lines) <= n:
+            read_size = block_size if pos - block_size > 0 else pos
+            pos -= read_size
+            f.seek(pos)
+            chunk = f.read(read_size)
+            data = chunk + data
+            lines = data.splitlines()
+            if pos == 0:
+                break
+        # chuyển bytes -> str và chỉ lấy N dòng cuối
+        result = [ln.decode("utf-8", errors="ignore") for ln in lines[-n:]]
+    return result
+
+def load_recent_stats(stats_path, minutes=10, classes=None, tail_lines: int = None):
     """
     Đọc file stats.json (JSON line-delimited) và lọc các bản ghi trong `minutes` phút gần nhất.
     Trích xuất lượng xe cho từng loại từ cột "counts" (dict).
     """
     classes = classes or DEFAULT_CLASSES
     valid = []
-    with open(stats_path, "r", encoding="utf-8") as f:
-        for line in f:
+    # Nếu tail_lines được cung cấp thì chỉ đọc N dòng cuối (tối ưu cho realtime)
+    if tail_lines is not None:
+        try:
+            lines = read_tail_lines(stats_path, n=tail_lines)
+        except Exception:
+            lines = []
+        for line in lines:
             line = line.strip()
             if not line:
                 continue
@@ -32,6 +66,19 @@ def load_recent_stats(stats_path, minutes=10, classes=None):
                 valid.append(item)
             except Exception:
                 continue
+    else:
+        with open(stats_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                    ts = float(item.get("timestamp", 0))
+                    item["timestamp"] = ts
+                    valid.append(item)
+                except Exception:
+                    continue
     if not valid:
         print("[Load] No valid records.")
         return pd.DataFrame()
@@ -124,14 +171,129 @@ def export_for_backend(agg_df: pd.DataFrame, out_dir: str = "data/processed"):
     p.mkdir(parents=True, exist_ok=True)
     csv_path = p / "traffic_data.csv"
     json_path = p / "traffic_data.json"
-
     df = agg_df.copy().reset_index()
-    df.rename(columns={"timestamp": "time"}, inplace=True)
-    df["time"] = df["time"].apply(lambda x: x.strftime("%Y-%m-%d %H:%M:%S") if hasattr(x, "strftime") else x)
+    # convert timestamp -> ISO8601 (UTC) in column 'time' for frontend
+    if "timestamp" in df.columns:
+        def _to_iso(x):
+            try:
+                if pd.isna(x):
+                    return None
+                if isinstance(x, pd.Timestamp):
+                    s = x.isoformat()
+                    # append Z for naive timestamps to indicate UTC
+                    if x.tzinfo is None:
+                        s = s + "Z"
+                    return s
+                if hasattr(x, "strftime"):
+                    return x.strftime("%Y-%m-%dT%H:%M:%SZ")
+                return str(x)
+            except Exception:
+                return str(x)
+        df["time"] = df["timestamp"].apply(_to_iso)
+        df = df.drop(columns=["timestamp"])
+    # write CSV (overwrite)
     df.to_csv(csv_path, index=False)
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(df.to_dict(orient="records"), f, ensure_ascii=False, indent=2)
+
+    # atomic write JSON: write to temp file then replace
+    records = df.to_dict(orient="records")
+    # normalize numpy types into native python types
+    def _normalize_value(v):
+        if isinstance(v, (np.integer,)):
+            return int(v)
+        if isinstance(v, (np.floating,)):
+            return float(v)
+        if isinstance(v, (np.bool_,)):
+            return bool(v)
+        return v
+
+    norm_records = []
+    for r in records:
+        nr = {k: _normalize_value(v) for k, v in r.items()}
+        norm_records.append(nr)
+
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".json", dir=str(p))
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            json.dump(norm_records, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, str(json_path))
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
     return str(csv_path), str(json_path)
+
+
+def to_json_records(df: pd.DataFrame) -> list:
+    """Chuyển DataFrame phân tích thành list-of-dicts JSON-friendly.
+
+    - Chuyển timestamp sang ISO8601 trong trường `time` nếu có.
+    - Convert numpy scalar types sang python native.
+    """
+    if df is None or df.empty:
+        return []
+    out = df.copy().reset_index()
+    if "timestamp" in out.columns:
+        def _fmt(x):
+            if pd.isna(x):
+                return None
+            if isinstance(x, pd.Timestamp):
+                s = x.isoformat()
+                if x.tzinfo is None:
+                    s = s + "Z"
+                return s
+            try:
+                return pd.to_datetime(x).isoformat() + "Z"
+            except Exception:
+                return str(x)
+        out["time"] = out["timestamp"].apply(_fmt)
+        out = out.drop(columns=["timestamp"])
+
+    records = out.to_dict(orient="records")
+    norm = []
+    for r in records:
+        nr = {}
+        for k, v in r.items():
+            if isinstance(v, (np.integer,)):
+                nr[k] = int(v)
+            elif isinstance(v, (np.floating,)):
+                nr[k] = float(v)
+            elif isinstance(v, (np.bool_,)):
+                nr[k] = bool(v)
+            else:
+                nr[k] = v
+        norm.append(nr)
+    return norm
+
+
+def analyze_pipeline_for_api(stats_path: str,
+                             classes: list = None,
+                             agg_freq: str = "1T",
+                             peak_window: int = 5,
+                             peak_threshold: int = None,
+                             minutes_window: int = 10,
+                             export: bool = False,
+                             out_dir: str = "data/processed") -> tuple:
+    """Phiên bản pipeline trả payload JSON-friendly cho backend/frontend.
+
+    Trả về (merged_df, records_list). Nếu export=True thì cũng ghi CSV/JSON như trước.
+    """
+    classes = classes or DEFAULT_CLASSES
+    df = load_recent_stats(stats_path, minutes=minutes_window, classes=classes)
+    if df.empty:
+        return pd.DataFrame(), []
+
+    agg = aggregate_timeseries(df, freq=agg_freq, classes=classes)
+    perc = compute_percentages(agg, classes=classes)
+    peak_df = detect_peaks(agg, window=peak_window, threshold=peak_threshold)
+    merged = perc.join(peak_df[["is_peak_auto", "is_peak_thr"]], how="left")
+
+    if export:
+        export_for_backend(merged, out_dir=out_dir)
+
+    records = to_json_records(merged)
+    return merged, records
 
 def analyze_pipeline_realtime(stats_path: str,
                               out_dir: str = "data/processed",

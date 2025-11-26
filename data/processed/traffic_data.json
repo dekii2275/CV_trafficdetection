@@ -1,34 +1,5 @@
 [
   {
-    "time": "2025-10-14 09:55:00",
-    "car": 90,
-    "motor": 150,
-    "bus": 0,
-    "truck": 0,
-    "total": 240,
-    "car_pct": 37.5,
-    "motor_pct": 62.5,
-    "bus_pct": 0.0,
-    "truck_pct": 0.0,
-    "is_peak_auto": false,
-    "is_peak_thr": false
-  },
-  {
-    "time": "2025-10-14 09:56:00",
-    "car": 95,
-    "motor": 155,
-    "bus": 2,
-    "truck": 0,
-    "total": 252,
-    "car_pct": 37.7,
-    "motor_pct": 61.51,
-    "bus_pct": 0.79,
-    "truck_pct": 0.0,
-    "is_peak_auto": false,
-    "is_peak_thr": false
-  },
-  {
-    "time": "2025-10-14 09:57:00",
     "car": 100,
     "motor": 160,
     "bus": 10,
@@ -39,10 +10,10 @@
     "bus_pct": 3.7,
     "truck_pct": 0.0,
     "is_peak_auto": false,
-    "is_peak_thr": false
+    "is_peak_thr": false,
+    "time": "2025-10-14T09:57:00Z"
   },
   {
-    "time": "2025-10-14 09:58:00",
     "car": 88,
     "motor": 148,
     "bus": 0,
@@ -53,10 +24,10 @@
     "bus_pct": 0.0,
     "truck_pct": 0.42,
     "is_peak_auto": false,
-    "is_peak_thr": false
+    "is_peak_thr": false,
+    "time": "2025-10-14T09:58:00Z"
   },
   {
-    "time": "2025-10-14 09:59:00",
     "car": 92,
     "motor": 152,
     "bus": 17,
@@ -67,10 +38,10 @@
     "bus_pct": 6.49,
     "truck_pct": 0.38,
     "is_peak_auto": false,
-    "is_peak_thr": false
+    "is_peak_thr": false,
+    "time": "2025-10-14T09:59:00Z"
   },
   {
-    "time": "2025-10-14 10:00:00",
     "car": 105,
     "motor": 170,
     "bus": 3,
@@ -81,10 +52,10 @@
     "bus_pct": 1.07,
     "truck_pct": 0.71,
     "is_peak_auto": false,
-    "is_peak_thr": false
+    "is_peak_thr": false,
+    "time": "2025-10-14T10:00:00Z"
   },
   {
-    "time": "2025-10-14 10:01:00",
     "car": 98,
     "motor": 160,
     "bus": 0,
@@ -95,10 +66,10 @@
     "bus_pct": 0.0,
     "truck_pct": 0.0,
     "is_peak_auto": false,
-    "is_peak_thr": false
+    "is_peak_thr": false,
+    "time": "2025-10-14T10:01:00Z"
   },
   {
-    "time": "2025-10-14 10:02:00",
     "car": 102,
     "motor": 165,
     "bus": 2,
@@ -109,10 +80,10 @@
     "bus_pct": 0.74,
     "truck_pct": 0.0,
     "is_peak_auto": false,
-    "is_peak_thr": false
+    "is_peak_thr": false,
+    "time": "2025-10-14T10:02:00Z"
   },
   {
-    "time": "2025-10-14 10:03:00",
     "car": 110,
     "motor": 175,
     "bus": 4,
@@ -123,20 +94,63 @@
     "bus_pct": 1.37,
     "truck_pct": 1.03,
     "is_peak_auto": false,
-    "is_peak_thr": false
+    "is_peak_thr": false,
+    "time": "2025-10-14T10:03:00Z"
   },
   {
-    "time": "2025-10-14 10:04:00",
-    "car": 100,
-    "motor": 160,
+    "car": 97,
+    "motor": 158,
     "bus": 0,
     "truck": 1,
-    "total": 261,
-    "car_pct": 38.31,
-    "motor_pct": 61.3,
+    "total": 256,
+    "car_pct": 37.89,
+    "motor_pct": 61.72,
     "bus_pct": 0.0,
-    "truck_pct": 0.38,
+    "truck_pct": 0.39,
     "is_peak_auto": false,
-    "is_peak_thr": false
+    "is_peak_thr": false,
+    "time": "2025-10-14T10:04:00Z"
+  },
+  {
+    "car": 97,
+    "motor": 158,
+    "bus": 0,
+    "truck": 1,
+    "total": 256,
+    "car_pct": 37.89,
+    "motor_pct": 61.72,
+    "bus_pct": 0.0,
+    "truck_pct": 0.39,
+    "is_peak_auto": false,
+    "is_peak_thr": false,
+    "time": "2025-10-14T10:05:00Z"
+  },
+  {
+    "car": 110,
+    "motor": 160,
+    "bus": 0,
+    "truck": 6,
+    "total": 276,
+    "car_pct": 39.86,
+    "motor_pct": 57.97,
+    "bus_pct": 0.0,
+    "truck_pct": 2.17,
+    "is_peak_auto": false,
+    "is_peak_thr": false,
+    "time": "2025-10-14T10:06:00Z"
+  },
+  {
+    "car": 93,
+    "motor": 152,
+    "bus": 17,
+    "truck": 10,
+    "total": 272,
+    "car_pct": 34.19,
+    "motor_pct": 55.88,
+    "bus_pct": 6.25,
+    "truck_pct": 3.68,
+    "is_peak_auto": false,
+    "is_peak_thr": false,
+    "time": "2025-10-14T10:07:00Z"
   }
 ]
