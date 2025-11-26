@@ -7,3 +7,14 @@ pandas
 matplotlib
 seaborn
 python-dateutil
+fastapi
+uvicorn[standard]
+python-jose[cryptography]
+overrides
+cvzone
+sqlalchemy[asyncio]
+
+langchain
+langchain_google_genai
+langgraph
+asyncpg
