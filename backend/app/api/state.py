@@ -1,0 +1,14 @@
+from app.services.road_services.AnalyzeOnRoad import AnalyzeOnRoad
+from app.services.rag_services.ChatBotAgent import ChatBotAgent
+
+# Phần gắn tạm để gợi ý code
+# analyzer = AnalyzeOnRoadForMultiprocessing(show= False,
+#                                            show_log= False,
+#                                            is_join_processes= False)
+# agent = ChatBotAgent()
+
+
+# Phần states chính thức
+analyzer = None
+# chat_bot = None
+agent = None

@@ -1,0 +1,23 @@
+video:
+  source: "https://www.youtube.com/live/CaMkzNXwVcE?si=w_jYUgjXNIeXqKQx"   # YouTube link (thay vì file local)
+  output: "data/output/result.mp4"
+  save_output: true
+
+yolo:
+  weights: "models/traffic_best_new.pt"  # dùng model tùy chỉnh của bạn
+  conf: 0.2
+  iou: 0.5
+  classes: ["car", "motor", "truck", "bus"]    # chỉ đếm 2 lớp này
+
+roi:
+  mode: "rect"                     # "rect" đếm khi tâm bbox đi vào hình chữ nhật
+  rect: "full"                    # "full" = dùng toàn bộ khung hình làm ROI
+  rect_ratio: [0.5, 0.4]           # tỉ lệ (w,h) so với khung hình khi dùng "center"
+  direction_sensitive: false        # không dùng cho rect, để tương thích cấu trúc
+  cooldown_frames: 0                # không cần cooldown khi đã theo dõi theo ID
+
+runtime:
+  visualize: true
+  resize: [640, 360]                # chỉnh khung hình về 640x360
+  show_counts: true                 # hiển thị số lượng theo lớp trên khung hình
+  count_conf: 0.5                   # chỉ đếm khi xác suất >= 0.5
