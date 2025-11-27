@@ -1,0 +1,33 @@
+# ============================
+# FRONTEND (Next.js)
+# ============================
+
+# Build output
+frontend/.next/
+frontend/out/
+
+# Dependencies
+frontend/node_modules/
+
+# Environment variables
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+frontend/.env.development
+frontend/.env.test
+
+# Logs
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# OS junk
+frontend/.DS_Store
+frontend/Thumbs.db
+
+# TypeScript build info
+frontend/*.tsbuildinfo
+
+# Vercel
+frontend/.vercel/
