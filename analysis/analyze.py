@@ -13,118 +13,73 @@ import json
 from datetime import timedelta, datetime, timezone
 import os
 import tempfile
-from load_data import load_and_normalize, DEFAULT_CLASSES
+from load_data import DEFAULT_CLASSES, load_and_normalize, load_tail_and_normalize
 
-
-def read_tail_lines(path: str, n: int = 1000):
-    """Đọc nhanh N dòng cuối của file (binary-safe). Trả về list các dòng (chuỗi).
-
-    Mục đích: tránh đọc toàn bộ file khi file `stats.json` lớn.
-    """
-    lines = []
-    with open(path, "rb") as f:
-        f.seek(0, 2)
-        file_size = f.tell()
-        block_size = 4096
-        data = b""
-        pos = file_size
-        # đọc lùi tới khi đủ số dòng hoặc tới đầu file
-        while pos > 0 and len(lines) <= n:
-            read_size = block_size if pos - block_size > 0 else pos
-            pos -= read_size
-            f.seek(pos)
-            chunk = f.read(read_size)
-            data = chunk + data
-            lines = data.splitlines()
-            if pos == 0:
-                break
-        # chuyển bytes -> str và chỉ lấy N dòng cuối
-        result = [ln.decode("utf-8", errors="ignore") for ln in lines[-n:]]
-    return result
 
 def load_recent_stats(stats_path, minutes=10, classes=None, tail_lines: int = None):
-    """
-    Đọc file stats.json (JSON line-delimited) và lọc các bản ghi trong `minutes` phút gần nhất.
-    Trích xuất lượng xe cho từng loại từ cột "counts" (dict).
+    """Load and normalize recent stats using shared load_data helpers.
+
+    If `tail_lines` is provided the function will read only last N lines (fast path).
+    Returns a DataFrame with columns: ts (unix seconds), timestamp (pd.Timestamp UTC), class cols, total.
     """
     classes = classes or DEFAULT_CLASSES
-    valid = []
-    # Nếu tail_lines được cung cấp thì chỉ đọc N dòng cuối (tối ưu cho realtime)
-    if tail_lines is not None:
-        try:
-            lines = read_tail_lines(stats_path, n=tail_lines)
-        except Exception:
-            lines = []
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                item = json.loads(line)
-                ts = float(item.get("timestamp", 0))
-                item["timestamp"] = ts
-                valid.append(item)
-            except Exception:
-                continue
-    else:
-        with open(stats_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    item = json.loads(line)
-                    ts = float(item.get("timestamp", 0))
-                    item["timestamp"] = ts
-                    valid.append(item)
-                except Exception:
-                    continue
-    if not valid:
+    try:
+        if tail_lines is not None:
+            df = load_tail_and_normalize(stats_path, n=tail_lines, classes=classes)
+        else:
+            df = load_and_normalize(stats_path, classes=classes)
+    except Exception as e:
+        print(f"[Load] error reading stats: {e}")
+        return pd.DataFrame()
+
+    if df is None or df.empty:
         print("[Load] No valid records.")
         return pd.DataFrame()
 
-    # Lọc dữ liệu trong `minutes` phút cuối cùng (dựa trên dòng cuối cùng trong file)
-    last_ts = valid[-1]["timestamp"]
-    limit_ts = last_ts - minutes*60
-    filtered = [it for it in valid if it["timestamp"] >= limit_ts]
+    # filter to last `minutes` minutes using numeric ts if available
+    if 'ts' in df.columns and not df['ts'].isna().all():
+        last_ts = float(df['ts'].dropna().iloc[-1])
+        limit_ts = last_ts - minutes * 60
+        df = df[df['ts'] >= limit_ts].copy()
+    elif 'timestamp' in df.columns and not df['timestamp'].isna().all():
+        last_ts = df['timestamp'].dropna().iloc[-1].timestamp()
+        limit_ts = pd.to_datetime(last_ts - minutes * 60, unit='s', utc=True)
+        df = df[df['timestamp'] >= pd.to_datetime(limit_ts, utc=True)].copy()
 
-    if not filtered:
+    if df.empty:
         print(f"[Load] No records found in the last {minutes} minutes.")
         return pd.DataFrame()
-    
-    print(f"[Load] {len(filtered)} records in the last {minutes} minutes.")
-    
-    df = pd.DataFrame(filtered)
-    
-    # Trích xuất từng loại xe từ cột "counts" (dict)
+
+    print(f"[Load] {len(df)} records in the last {minutes} minutes.")
+    # ensure class columns exist
     for c in classes:
-        df[c] = df["counts"].apply(lambda x: x.get(c, 0) if isinstance(x, dict) else 0)
-    
-    # Tính tổng nếu chưa có
-    if "total" not in df.columns:
-        df["total"] = df[classes].sum(axis=1)
-    
-    # Bỏ cột counts (đã trích xuất xong)
-    df = df.drop(columns=["counts"]) 
-    
-    return df
+        if c not in df.columns:
+            df[c] = 0
+
+    # ensure total
+    if 'total' not in df.columns:
+        df['total'] = df[classes].sum(axis=1)
+
+    return df.reset_index(drop=True)
 
 def aggregate_timeseries(df: pd.DataFrame, freq: str = "1T", classes: list = None) -> pd.DataFrame:
-    """
-    Gom dữ liệu theo khoảng thời gian (resampling).
-    Dùng giá trị cuối cùng (.last()) trong mỗi khoảng và tính tổng.
-    """
     classes = classes or DEFAULT_CLASSES
     d = df.copy()
-    d["timestamp"] = pd.to_datetime(d["timestamp"], unit="s", origin="unix")
-    d = d.set_index("timestamp")
-    
-    agg = d[classes].resample(freq).last().fillna(0).astype(int) 
+    # support both numeric ts (unix seconds) or datetime timestamp
+    if 'timestamp' in d.columns and pd.api.types.is_datetime64_any_dtype(d['timestamp']):
+        d = d.set_index('timestamp')
+    elif 'ts' in d.columns:
+        d['timestamp'] = pd.to_datetime(d['ts'], unit='s', utc=True)
+        d = d.set_index('timestamp')
+    else:
+        # try coercion
+        d['timestamp'] = pd.to_datetime(d.get('timestamp'))
+        d = d.set_index('timestamp')
+    agg = d[classes].resample(freq).last().fillna(0).astype(int)
     agg["total"] = agg[classes].sum(axis=1)
     return agg
 
 def compute_percentages(agg_df: pd.DataFrame, classes: list = None):
-    """Tính tỷ lệ phần trăm (%) của từng loại xe so với tổng cộng."""
     classes = classes or DEFAULT_CLASSES
     df = agg_df.copy()
     tot = df["total"].replace(0, np.nan)
@@ -134,31 +89,14 @@ def compute_percentages(agg_df: pd.DataFrame, classes: list = None):
 
 
 def detect_peaks(agg_df: pd.DataFrame, window: int = 5, threshold: int = None):
-    """
-    Phát hiện đỉnh lưu lượng (peak) dùng rolling mean + rolling std.
-    - is_peak_auto: đỉnh được phát hiện tự động (mean + 3*std)
-    - is_peak_thr: đỉnh dựa trên ngưỡng cố định (nếu có)
-    """
     df = agg_df.copy()
-    
-    # Dùng shifted total để tránh nhìn trước (lookahead bias)
     shifted_total = df["total"].shift(1)
-    
-    # Tính trung bình động và độ lệch chuẩn
     df["rolling_mean"] = shifted_total.rolling(window=window, min_periods=1).mean()
     df["rolling_std"] = shifted_total.rolling(window=window, min_periods=2).std()
-    
-    # Ngưỡng peak: mean + 3*std (3 sigma rule - chỉ bắt những đỉnh cực lớn)
     threshold_line = df["rolling_mean"] + (3 * df["rolling_std"])
-    
-    # Tự động bỏ qua các điểm đầu tiên nếu std chưa tính được (NaN)
     df["is_peak_auto"] = df["total"] > threshold_line
-    
-    # Điền giá trị NaN cho output file (tính toán vẫn dùng NaN để chính xác)
     df["rolling_mean"] = df["rolling_mean"].fillna(0)
     df["rolling_std"] = df["rolling_std"].fillna(0)
-
-    # Peak dựa trên ngưỡng cố định (nếu có)
     if threshold is not None:
         df["is_peak_thr"] = df["total"] > threshold
     else:
@@ -166,13 +104,11 @@ def detect_peaks(agg_df: pd.DataFrame, window: int = 5, threshold: int = None):
     return df
 
 def export_for_backend(agg_df: pd.DataFrame, out_dir: str = "data/processed"):
-    """Xuất kết quả phân tích ra file CSV và JSON để backend sử dụng."""
     p = Path(out_dir)
     p.mkdir(parents=True, exist_ok=True)
     csv_path = p / "traffic_data.csv"
     json_path = p / "traffic_data.json"
     df = agg_df.copy().reset_index()
-    # convert timestamp -> ISO8601 (UTC) in column 'time' for frontend
     if "timestamp" in df.columns:
         def _to_iso(x):
             try:
@@ -191,12 +127,8 @@ def export_for_backend(agg_df: pd.DataFrame, out_dir: str = "data/processed"):
                 return str(x)
         df["time"] = df["timestamp"].apply(_to_iso)
         df = df.drop(columns=["timestamp"])
-    # write CSV (overwrite)
     df.to_csv(csv_path, index=False)
-
-    # atomic write JSON: write to temp file then replace
     records = df.to_dict(orient="records")
-    # normalize numpy types into native python types
     def _normalize_value(v):
         if isinstance(v, (np.integer,)):
             return int(v)
@@ -205,12 +137,10 @@ def export_for_backend(agg_df: pd.DataFrame, out_dir: str = "data/processed"):
         if isinstance(v, (np.bool_,)):
             return bool(v)
         return v
-
     norm_records = []
     for r in records:
         nr = {k: _normalize_value(v) for k, v in r.items()}
         norm_records.append(nr)
-
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".json", dir=str(p))
     try:
         with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
@@ -226,11 +156,6 @@ def export_for_backend(agg_df: pd.DataFrame, out_dir: str = "data/processed"):
 
 
 def to_json_records(df: pd.DataFrame) -> list:
-    """Chuyển DataFrame phân tích thành list-of-dicts JSON-friendly.
-
-    - Chuyển timestamp sang ISO8601 trong trường `time` nếu có.
-    - Convert numpy scalar types sang python native.
-    """
     if df is None or df.empty:
         return []
     out = df.copy().reset_index()
@@ -249,7 +174,6 @@ def to_json_records(df: pd.DataFrame) -> list:
                 return str(x)
         out["time"] = out["timestamp"].apply(_fmt)
         out = out.drop(columns=["timestamp"])
-
     records = out.to_dict(orient="records")
     norm = []
     for r in records:
@@ -266,7 +190,6 @@ def to_json_records(df: pd.DataFrame) -> list:
         norm.append(nr)
     return norm
 
-
 def analyze_pipeline_for_api(stats_path: str,
                              classes: list = None,
                              agg_freq: str = "1T",
@@ -275,20 +198,14 @@ def analyze_pipeline_for_api(stats_path: str,
                              minutes_window: int = 10,
                              export: bool = False,
                              out_dir: str = "data/processed") -> tuple:
-    """Phiên bản pipeline trả payload JSON-friendly cho backend/frontend.
-
-    Trả về (merged_df, records_list). Nếu export=True thì cũng ghi CSV/JSON như trước.
-    """
     classes = classes or DEFAULT_CLASSES
     df = load_recent_stats(stats_path, minutes=minutes_window, classes=classes)
     if df.empty:
         return pd.DataFrame(), []
-
     agg = aggregate_timeseries(df, freq=agg_freq, classes=classes)
     perc = compute_percentages(agg, classes=classes)
     peak_df = detect_peaks(agg, window=peak_window, threshold=peak_threshold)
     merged = perc.join(peak_df[["is_peak_auto", "is_peak_thr"]], how="left")
-
     if export:
         export_for_backend(merged, out_dir=out_dir)
 
@@ -302,18 +219,6 @@ def analyze_pipeline_realtime(stats_path: str,
                               peak_window: int = 5,
                               peak_threshold: int = None,
                               minutes_window: int = 10):
-    """
-    Pipeline chính: đọc -> gom -> tính % -> phát hiện đỉnh -> xuất kết quả.
-    
-    Args:
-        stats_path: đường dẫn tới stats.json
-        out_dir: thư mục xuất kết quả
-        classes: danh sách loại xe
-        agg_freq: tần suất gom dữ liệu (ví dụ: "1T" = 1 phút)
-        peak_window: cửa sổ tính rolling stats
-        peak_threshold: ngưỡng peak cố định (nếu có)
-        minutes_window: lọc dữ liệu bao nhiêu phút gần nhất
-    """
     classes = classes or DEFAULT_CLASSES
     df = load_recent_stats(stats_path, minutes=minutes_window, classes=classes)
     if df.empty:
@@ -336,7 +241,6 @@ if __name__ == "__main__":
     parser.add_argument("--freq", default="1min")
     parser.add_argument("--threshold", type=int, default=None)
     args = parser.parse_args()
-    
     df = analyze_pipeline_realtime(args.input, out_dir=args.out, agg_freq=args.freq, 
                                    peak_threshold=args.threshold, minutes_window=10)
     print(df)
