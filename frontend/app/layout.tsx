@@ -1,6 +1,7 @@
 import "./styles/globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import ChatBubble from "./components/chatbot/ChatBubble";
 
 export const metadata: Metadata = {
   title: "Traffic AI Dashboard",
@@ -16,6 +17,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-[#0F172A] text-white antialiased">
         {children}
+        <ChatBubble />
       </body>
     </html>
   );
