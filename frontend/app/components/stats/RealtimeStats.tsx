@@ -2,6 +2,7 @@ import Card from "../ui/Card";
 import StatCard from "./StatCard";
 import { formatCompactNumber, formatNumber, formatRatePerMinute } from "../../lib/utils";
 
+
 const liveStats = {
     total: 18420,
     ratePerMinute: 328,

@@ -8,6 +8,7 @@ from pathlib import Path
 import traceback
 import time
 from app.core.config import settings_metric_transport
+import os
 
 class AnalyzeOnRoadBase:
     """
@@ -50,8 +51,9 @@ class AnalyzeOnRoadBase:
         
         self.logs_dir = Path("logs/traffic_count")
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        session_id = self.session_start_time.strftime("%Y%m%d_%H%M%S")
-        self.json_file = self.logs_dir / f"cam{video_index}_{session_id}.json"
+
+        # Mỗi camera luôn dùng 1 file cố định, ví dụ: cam0.json, cam1.json
+        self.json_file = self.logs_dir / f"cam{video_index}.json"
 
         # ===== Model Loading =====
         try:
@@ -134,9 +136,60 @@ class AnalyzeOnRoadBase:
         except Exception: pass
 
     def _check_and_save(self):
-        if self.auto_save and (datetime.now() - self.last_save_time).total_seconds() >= self.save_interval_seconds:
-            # (Giả lập save để ngắn gọn)
-            self.last_save_time = datetime.now()
+        """
+        Auto-save thống kê ra 1 file JSON (ghi đè mỗi lần).
+
+        Trường trong JSON:
+            timestamp      : thời điểm lưu (ISO string)
+            car            : tổng số xe car đã đi qua ROI
+            motor          : tổng số xe máy/motor/bike đã đi qua ROI
+            bus            : tổng số xe bus đã đi qua ROI
+            truck          : tổng số xe truck đã đi qua ROI
+            total_vehicles : tổng tất cả loại xe ở trên
+        """
+        if not self.auto_save:
+            return
+
+        now = datetime.now()
+        if (now - self.last_save_time).total_seconds() < self.save_interval_seconds:
+            return
+
+        # ----- Lấy số lượng theo từng class (dùng counted_ids: set các id đã "enter") -----
+        # Nếu model đặt tên class khác thì sửa lại các key dưới đây cho đúng.
+        car_count = len(self.counted_ids.get("car", set()))
+
+        # Gộp cả "motor" và "bike" nếu có
+        motor_ids = set()
+        motor_ids |= self.counted_ids.get("motor", set())
+        motor_ids |= self.counted_ids.get("bike", set())
+        motor_ids |= self.counted_ids.get("motorbike", set())
+        motor_count = len(motor_ids)
+
+        bus_count = len(self.counted_ids.get("bus", set()))
+        truck_count = len(self.counted_ids.get("truck", set()))
+
+        total_vehicles = car_count + motor_count + bus_count + truck_count
+
+        data = {
+            "timestamp": now.isoformat(),
+            "car": int(car_count),
+            "motor": int(motor_count),
+            "bus": int(bus_count),
+            "truck": int(truck_count),
+            "total_vehicles": int(total_vehicles),
+        }
+
+        try:
+            # Ghi đè file cũ mỗi lần
+            with open(self.json_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            # cập nhật mốc thời gian lưu gần nhất
+            self.last_save_time = now
+            # Debug nhẹ (nếu muốn)
+            # print(f"[Cam {self.video_index}] JSON saved: {data}")
+        except Exception as e:
+            print(f"[Cam {self.video_index}] ❌ Error saving JSON stats: {e}")
+
 
     def process_single_frame(self, frame):
         # Logic Skip Frame: Chỉ chạy AI khi chia hết cho skip_frames
@@ -223,3 +276,29 @@ class AnalyzeOnRoadBase:
                 print(f"[Cam {self.video_index}] Error: {e}")
                 time.sleep(2)
         if self.show: cv2.destroyAllWindows()
+def main():
+    """
+    Chạy thử 1 camera để kiểm tra hàm _check_and_save
+    - Đếm xe từ video index 0 (PATH_VIDEOS[0])
+    - Tự động lưu JSON sau mỗi save_interval_seconds
+    """
+    # Tùy ý chỉnh save_interval_seconds cho dễ thấy file cập nhật
+    analyzer = AnalyzeOnRoadBase(
+        video_index=0,
+        shared_dict=None,
+        result_queue=None,
+        show=True,               # hiện cửa sổ video, nếu không cần thì để False
+        frame_dict=None,
+        auto_save=True,
+        save_interval_seconds=5  # 5 giây ghi JSON 1 lần cho dễ test
+    )
+
+    try:
+        analyzer.process_video()
+    except KeyboardInterrupt:
+        print("\n[MAIN] Stop by user (Ctrl+C)")
+        analyzer.is_running = False
+
+
+if __name__ == "__main__":
+    main()
