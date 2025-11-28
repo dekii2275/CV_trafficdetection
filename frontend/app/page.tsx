@@ -49,7 +49,9 @@ export default function DashboardPage() {
         </header>
 
         <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-          <VideoPlayer />
+          <VideoPlayer 
+            roadName="default"
+            backendUrl="ws://localhost:8000" />
           <Card>
             <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Tổng lượt ghi nhận hôm nay</h3>
             <p className="my-4 text-3xl font-bold text-white">{formatNumber(totalToday)}</p>
