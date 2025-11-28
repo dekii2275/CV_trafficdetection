@@ -1,157 +1,167 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response
 import asyncio
-import threading
-from multiprocessing import Manager
 import cv2
 import numpy as np
-import io
+from multiprocessing import Manager, Process, Queue
+import time
+import sys
 
+# Import config
+from app.core.config import settings_metric_transport
+
+# CHÚ Ý: Import hàm run_analyzer (không phải class)
+from app.services.road_services.AnalyzeOnRoad import run_analyzer 
+
+# Import state global (chỉ để dùng biến, không import class từ đó)
 from app.api import state
-# Import settings nếu cần dùng biến khác, nhưng analyzer tự đọc rồi
-from app.services.road_services.AnalyzeOnRoad import AnalyzeOnRoad
-from app.utils.transport_utils import enrich_info_with_thresholds
 
 router = APIRouter()
 
-# --- CẤU HÌNH GLOBAL STATE CHO DATA ---
-# Chúng ta cần lưu manager dict vào state để các hàm API bên dưới có thể đọc được
-if not hasattr(state, 'info_dict'):
-    state.info_dict = None
-if not hasattr(state, 'frame_dict'):
-    state.frame_dict = None
+# --- GLOBAL STATE MANAGER ---
+class SystemState:
+    def __init__(self):
+        self.manager = None
+        self.info_dict = None   # Chứa thông tin đếm xe: {'camera_0': {...}}
+        self.frame_dict = None  # Chứa bytes hình ảnh: {'camera_0': b'\xff...'}
+        self.processes = []     # Danh sách các tiến trình đang chạy
+        self.result_queue = None
 
-def start_analyzer_single_thread():
-    """
-    Khởi tạo Analyzer chạy 1 luồng background.
-    """
-    if state.analyzer is not None:
-        print("⚠️ Analyzer đã đang chạy rồi.")
-        return
+# Khởi tạo state toàn cục
+sys_state = SystemState()
 
-    print("🚀 Khởi tạo Analyzer (single-thread)...")
-
-    # 1. Tạo Manager để chứa dữ liệu chia sẻ
-    # Lưu vào global state để API endpoint có thể đọc
-    manager = Manager()
-    state.info_dict = manager.dict()
-    state.frame_dict = manager.dict()
-
-    # 2. Khởi tạo Analyzer (SỬA LẠI THAM SỐ CHO ĐÚNG CLASS MỚI)
-    try:
-        analyzer = AnalyzeOnRoad(
-            video_index=0,              # Video đầu tiên trong config
-            info_dict=state.info_dict,  # Dict để chứa số liệu
-            frame_dict=state.frame_dict,# Dict để chứa ảnh
-            show=False                  # False khi chạy server (không hiện cửa sổ)
-        )
-        state.analyzer = analyzer
-
-        # 3. Chạy trong Thread riêng (Daemon=True để tắt khi server tắt)
-        # Lưu ý: Hàm chạy chính bây giờ là process_video (của lớp cha)
-        thread = threading.Thread(target=analyzer.process_video, daemon=True)
-        thread.start()
-
-        print("✅ Traffic Analyzer đã chạy trong background thread.")
-    except Exception as e:
-        print(f"❌ Lỗi khởi tạo Analyzer: {e}")
-
+# ========================== LIFECYCLE EVENTS ==========================
 
 @router.on_event("startup")
-def startup_event():
-    start_analyzer_single_thread()
+async def startup_event():
+    print("🚀 Đang khởi động hệ thống Traffic AI (Multiprocessing)...")
+    try:
+        sys_state.manager = Manager()
+        sys_state.info_dict = sys_state.manager.dict()
+        sys_state.frame_dict = sys_state.manager.dict()
+        sys_state.result_queue = Queue()
+
+        # ÉP CỨNG SỐ LƯỢNG CAMERA LÀ 2 (Để giảm tải CPU)
+        # Thay vì lấy hết trong config
+        num_cameras = 2 
+
+        print(f"📹 Kích hoạt {num_cameras} cameras tối ưu...")
+
+        for i in range(num_cameras):
+            p = Process(
+                target=run_analyzer,
+                args=(i, sys_state.info_dict, sys_state.result_queue, sys_state.frame_dict, False)
+            )
+            p.start()
+            sys_state.processes.append(p)
+            print(f"✅ Camera {i} started (PID: {p.pid})")
+            time.sleep(1) 
+
+    except Exception as e:
+        print(f"❌ Lỗi khởi động: {e}")
+
+@router.on_event("shutdown")
+async def shutdown_event():
+    """
+    Dọn dẹp processes khi tắt API
+    """
+    print("🛑 Đang tắt hệ thống Traffic AI...")
+    for p in sys_state.processes:
+        if p.is_alive():
+            p.terminate()
+            p.join()
+    print("✅ Đã tắt toàn bộ processes.")
 
 
 # ========================== API ENDPOINTS ==========================
 
-@router.get("/info/{road_name}")
-async def get_info_road(road_name: str):
+@router.get("/info/{camera_id}")
+async def get_info_road(camera_id: int):
     """
-    Lấy thông tin đếm xe realtime.
-    Thay vì gọi hàm vào analyzer, ta đọc trực tiếp từ bộ nhớ chia sẻ (info_dict).
+    Lấy thông tin đếm xe từ bộ nhớ chia sẻ.
     """
-    if state.info_dict is None:
-        return JSONResponse({"error": "Analyzer chưa khởi động"}, status_code=500)
+    if sys_state.info_dict is None:
+        return JSONResponse({"error": "System not initialized"}, status_code=500)
 
-    # Convert ManagerDict sang Dict thường
-    data = dict(state.info_dict)
+    key = f"camera_{camera_id}"
     
-    # Nếu chưa có dữ liệu
-    if not data:
-        return JSONResponse({"status": "Waiting for data..."})
-
-    # Logic cũ: enrich dữ liệu (nếu cần)
-    try:
-        enriched = enrich_info_with_thresholds(data, road_name)
-    except:
-        enriched = data
-
-    return JSONResponse(enriched)
+    # Lấy dữ liệu từ Manager Dict (cần copy ra dict thường để return JSON)
+    if key in sys_state.info_dict:
+        data = dict(sys_state.info_dict[key])
+        return JSONResponse(data)
+    else:
+        return JSONResponse({"status": "waiting", "message": f"No data for Camera {camera_id} yet"})
 
 
-@router.get("/frames/{road_name}")
-async def get_frame_road(road_name: str):
+@router.get("/frames/{camera_id}")
+async def get_frame_road(camera_id: int):
     """
-    Lấy frame ảnh hiện tại (Snapshot).
-    Đọc từ state.frame_dict
+    Lấy ảnh Snapshot (JPEG) hiện tại của camera
     """
-    if state.frame_dict is None or "frame_bytes" not in state.frame_dict:
-        return JSONResponse({"error": "Chưa có dữ liệu hình ảnh"}, status_code=404)
+    if sys_state.frame_dict is None:
+        return Response(status_code=500)
 
-    # Lấy bytes ảnh từ bộ nhớ
-    frame_bytes = state.frame_dict["frame_bytes"]
+    key = f"camera_{camera_id}"
     
-    return Response(content=frame_bytes, media_type="image/jpeg")
+    if key in sys_state.frame_dict:
+        frame_bytes = sys_state.frame_dict[key]
+        return Response(content=frame_bytes, media_type="image/jpeg")
+    else:
+        return JSONResponse({"error": "No frame data"}, status_code=404)
 
 
 # ========================== WEBSOCKETS (STREAMING) ==========================
 
-@router.websocket("/ws/frames/{road_name}")
-async def ws_frames(websocket: WebSocket, road_name: str):
-    """
-    Stream video qua WebSocket
-    """
+# =======================================================
+# 2. SỬA HÀM WEBSOCKET: Chỉ gửi khi frame thay đổi
+# =======================================================
+@router.websocket("/ws/frames/{camera_id}")
+async def ws_frames(websocket: WebSocket, camera_id: int):
     await websocket.accept()
+    key = f"camera_{camera_id}"
+    last_frame_data = None # Biến nhớ frame cũ
+    
     try:
         while True:
-            if state.frame_dict and "frame_bytes" in state.frame_dict:
-                frame_bytes = state.frame_dict["frame_bytes"]
-                # Gửi bytes trực tiếp
-                await websocket.send_bytes(frame_bytes)
+            if sys_state.frame_dict and key in sys_state.frame_dict:
+                current_frame_data = sys_state.frame_dict[key]
+                
+                # CHỈ GỬI NẾU KHÁC CŨ
+                if current_frame_data != last_frame_data:
+                    await websocket.send_bytes(current_frame_data)
+                    last_frame_data = current_frame_data
             
-            # Giới hạn FPS gửi đi (ví dụ 30 FPS) để tránh nghẽn mạng
-            await asyncio.sleep(0.033) 
+            # Ngủ 0.05s (~20 FPS) là đủ mượt cho mắt người
+            await asyncio.sleep(0.05) 
             
     except WebSocketDisconnect:
-        print("Client ngắt kết nối stream video")
+        pass
     except Exception as e:
-        print(f"Lỗi WebSocket Video: {e}")
+        print(f"WS Error: {e}")
 
 
-@router.websocket("/ws/info/{road_name}")
-async def ws_info(websocket: WebSocket, road_name: str):
+@router.websocket("/ws/info/{camera_id}")
+async def ws_info(websocket: WebSocket, camera_id: int):
     """
-    Stream thông số xe qua WebSocket
+    Stream thông số đếm xe realtime
     """
     await websocket.accept()
+    key = f"camera_{camera_id}"
+    last_ts = 0
+    
     try:
-        last_data = None
         while True:
-            if state.info_dict:
-                current_data = dict(state.info_dict)
+            if sys_state.info_dict and key in sys_state.info_dict:
+                current_data = dict(sys_state.info_dict[key])
+                current_ts = current_data.get('timestamp', 0)
                 
-                # Chỉ gửi khi dữ liệu thay đổi để tiết kiệm băng thông (Optional)
-                if current_data != last_data:
-                    try:
-                        enriched = enrich_info_with_thresholds(current_data, road_name)
-                    except:
-                        enriched = current_data
-                    
-                    await websocket.send_json(enriched)
-                    last_data = current_data
+                # Chỉ gửi khi có dữ liệu mới (dựa vào timestamp)
+                if current_ts != last_ts:
+                    await websocket.send_json(current_data)
+                    last_ts = current_ts
             
             # Cập nhật mỗi 0.5 giây
             await asyncio.sleep(0.5)
             
     except WebSocketDisconnect:
-        print("Client ngắt kết nối stream info")
+        print(f"Client disconnected info Camera {camera_id}")

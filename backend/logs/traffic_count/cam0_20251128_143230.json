@@ -1,0 +1,3 @@
+{"camera_id": 0, "timestamp": 1764315230.296334, "summary": {"total_entered": 10}, "details": {"car": {"entered": 4, "current": 3}, "motor": {"entered": 6, "current": 5}}}
+{"camera_id": 0, "timestamp": 1764315300.377215, "summary": {"total_entered": 10}, "details": {"car": {"entered": 4, "current": 3}, "motor": {"entered": 6, "current": 5}}}
+{"camera_id": 0, "timestamp": 1764315370.516795, "summary": {"total_entered": 11}, "details": {"car": {"entered": 4, "current": 3}, "motor": {"entered": 6, "current": 3}, "bus": {"entered": 1, "current": 1}}}
