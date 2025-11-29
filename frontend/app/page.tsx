@@ -61,7 +61,11 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        <RealtimeStats />
+        <div className="grid gap-6 xl:grid-cols-2">
+          <RealtimeStats cameraId={0} cameraLabel="Camera 1" />
+          <RealtimeStats cameraId={1} cameraLabel="Camera 2" />
+        </div>
+
 
         <div className="grid gap-6 xl:grid-cols-3">
           <ChartCard title="Phân bổ theo loại phương tiện">

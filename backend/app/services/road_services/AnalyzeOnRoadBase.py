@@ -52,8 +52,39 @@ class AnalyzeOnRoadBase:
         self.logs_dir = Path("logs/traffic_count")
         self.logs_dir.mkdir(parents=True, exist_ok=True)
 
-        # Mỗi camera luôn dùng 1 file cố định, ví dụ: cam0.json, cam1.json
-        self.json_file = self.logs_dir / f"cam{video_index}.json"
+        # --- Lưu file theo từng ngày: cam0_YYYYMMDD.json, cam1_YYYYMMDD.json ---
+        self.current_date_str = datetime.now().strftime("%Y%m%d")
+        self.json_file = self.logs_dir / f"cam{video_index}_{self.current_date_str}.json"
+
+        # Base count: nếu đã có file hôm nay thì đọc để cộng dồn
+        self.base_car = 0
+        self.base_motor = 0
+        self.base_bus = 0
+        self.base_truck = 0
+
+        if self.json_file.exists():
+            try:
+                with self.json_file.open("r", encoding="utf-8") as f:
+                    old = json.load(f)
+
+                # Nếu file là list thì lấy phần tử cuối; nếu là dict thì dùng luôn
+                if isinstance(old, list):
+                    last = old[-1] if old else {}
+                else:
+                    last = old
+
+                self.base_car = int(last.get("car", 0))
+                self.base_motor = int(last.get("motor", 0))
+                self.base_bus = int(last.get("bus", 0))
+                self.base_truck = int(last.get("truck", 0))
+                print(
+                    f"[Camera {video_index}] 🔄 Resume from {self.json_file.name}: "
+                    f"car={self.base_car}, motor={self.base_motor}, "
+                    f"bus={self.base_bus}, truck={self.base_truck}"
+                )
+            except Exception as e:
+                print(f"[Camera {video_index}] ⚠️ Cannot read existing stats file {self.json_file.name}: {e}")
+
 
         # ===== Model Loading =====
         try:
@@ -168,25 +199,46 @@ class AnalyzeOnRoadBase:
         bus_count = len(self.counted_ids.get("bus", set()))
         truck_count = len(self.counted_ids.get("truck", set()))
 
-        total_vehicles = car_count + motor_count + bus_count + truck_count
+        car_total = self.base_car + car_count
+        motor_total = self.base_motor + motor_count
+        bus_total = self.base_bus + bus_count
+        truck_total = self.base_truck + truck_count
+
+        total_vehicles = car_total + motor_total + bus_total + truck_total
 
         data = {
             "timestamp": now.isoformat(),
-            "car": int(car_count),
-            "motor": int(motor_count),
-            "bus": int(bus_count),
-            "truck": int(truck_count),
+            "car": int(car_total),
+            "motor": int(motor_total),
+            "bus": int(bus_total),
+            "truck": int(truck_total),
             "total_vehicles": int(total_vehicles),
         }
 
+
         try:
-            # Ghi đè file cũ mỗi lần
-            with open(self.json_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            # cập nhật mốc thời gian lưu gần nhất
+            # Đọc lịch sử hiện có (nếu có)
+            if self.json_file.exists():
+                with self.json_file.open("r", encoding="utf-8") as f:
+                    try:
+                        history = json.load(f)
+                    except json.JSONDecodeError:
+                        history = []
+            else:
+                history = []
+
+            # Nếu file cũ là 1 dict thì convert thành list
+            if isinstance(history, dict):
+                history = [history]
+
+            history.append(data)
+
+            # Ghi lại toàn bộ list
+            with self.json_file.open("w", encoding="utf-8") as f:
+                json.dump(history, f, ensure_ascii=False, indent=2)
+
             self.last_save_time = now
-            # Debug nhẹ (nếu muốn)
-            # print(f"[Cam {self.video_index}] JSON saved: {data}")
+
         except Exception as e:
             print(f"[Cam {self.video_index}] ❌ Error saving JSON stats: {e}")
 
@@ -290,7 +342,7 @@ def main():
         show=True,               # hiện cửa sổ video, nếu không cần thì để False
         frame_dict=None,
         auto_save=True,
-        save_interval_seconds=5  # 5 giây ghi JSON 1 lần cho dễ test
+        save_interval_seconds=60  # 60 giây ghi JSON 1 lần cho dễ test
     )
 
     try:

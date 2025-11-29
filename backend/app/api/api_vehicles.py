@@ -10,7 +10,7 @@ import multiprocessing
 from pathlib import Path   # thêm
 import json                # thêm
 import os 
-
+from datetime import datetime 
 # Import config
 from app.core.config import settings_metric_transport
 
@@ -114,9 +114,6 @@ async def get_frame_road(camera_id: int):
 
 # ========================== WEBSOCKETS (STREAMING) ==========================
 
-# =======================================================
-# 2. SỬA HÀM WEBSOCKET: Chỉ gửi khi frame thay đổi
-# =======================================================
 @router.websocket("/ws/frames/{camera_id}")
 async def ws_frames(websocket: WebSocket, camera_id: int):
     await websocket.accept()
@@ -168,36 +165,54 @@ async def ws_info(websocket: WebSocket, camera_id: int):
     except WebSocketDisconnect:
         print(f"Client disconnected info Camera {camera_id}")
 
+
 @router.get("/stats/{camera_id}")
 async def get_camera_stats(camera_id: int):
     """
-    Đọc file JSON thống kê đã được AnalyzeOnRoadBase log ra trong logs/traffic_count
-    Trả về y nguyên nội dung trong file.
+    Đọc file JSON thống kê đã được AnalyzeOnRoadBase log ra trong logs/traffic_count.
+    File bây giờ là LIST các snapshot; trả về snapshot mới nhất (phần tử cuối).
     """
     try:
         log_dir = Path("logs/traffic_count")
         if not log_dir.exists():
             return JSONResponse(
                 {"error": "Log directory not found", "detail": str(log_dir)},
-                status_code=404
+                status_code=404,
             )
 
-        file_path = log_dir / f"cam{camera_id}.json"
+        # Tên file hôm nay, ví dụ: cam0_20251129.json
+        today = datetime.now().strftime("%Y%m%d")
+        file_path = log_dir / f"cam{camera_id}_{today}.json"
 
         if not file_path.exists():
             return JSONResponse(
-                {"error": "No log file found for this camera", "camera_id": camera_id},
-                status_code=404
+                {
+                    "error": "No log file found for this camera today",
+                    "camera_id": camera_id,
+                    "date": today,
+                },
+                status_code=404,
             )
 
         with file_path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+            raw = json.load(f)
 
-        return JSONResponse(data)
+        # Nếu là list thì lấy phần tử cuối, nếu là dict thì dùng luôn
+        if isinstance(raw, list):
+            if not raw:
+                return JSONResponse(
+                    {"error": "Stats file is empty"},
+                    status_code=404,
+                )
+            latest = raw[-1]
+        else:
+            latest = raw
+
+        return JSONResponse(latest)
 
     except Exception as e:
         print(f"[get_camera_stats] Error reading JSON for camera {camera_id}: {e}")
         return JSONResponse(
             {"error": "Internal server error while reading stats JSON"},
-            status_code=500
+            status_code=500,
         )
