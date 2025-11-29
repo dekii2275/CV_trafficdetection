@@ -6,6 +6,10 @@ import numpy as np
 from multiprocessing import Manager, Process, Queue
 import time
 import sys
+import multiprocessing
+from pathlib import Path   # thêm
+import json                # thêm
+import os 
 
 # Import config
 from app.core.config import settings_metric_transport
@@ -42,9 +46,7 @@ async def startup_event():
         sys_state.result_queue = Queue()
 
         # ÉP CỨNG SỐ LƯỢNG CAMERA LÀ 2 (Để giảm tải CPU)
-        # Thay vì lấy hết trong config
-        num_cameras = 2 
-
+        num_cameras = 2
         print(f"📹 Kích hoạt {num_cameras} cameras tối ưu...")
 
         for i in range(num_cameras):
@@ -55,7 +57,7 @@ async def startup_event():
             p.start()
             sys_state.processes.append(p)
             print(f"✅ Camera {i} started (PID: {p.pid})")
-            time.sleep(1) 
+            time.sleep(1)
 
     except Exception as e:
         print(f"❌ Lỗi khởi động: {e}")
@@ -165,3 +167,37 @@ async def ws_info(websocket: WebSocket, camera_id: int):
             
     except WebSocketDisconnect:
         print(f"Client disconnected info Camera {camera_id}")
+
+@router.get("/stats/{camera_id}")
+async def get_camera_stats(camera_id: int):
+    """
+    Đọc file JSON thống kê đã được AnalyzeOnRoadBase log ra trong logs/traffic_count
+    Trả về y nguyên nội dung trong file.
+    """
+    try:
+        log_dir = Path("logs/traffic_count")
+        if not log_dir.exists():
+            return JSONResponse(
+                {"error": "Log directory not found", "detail": str(log_dir)},
+                status_code=404
+            )
+
+        file_path = log_dir / f"cam{camera_id}.json"
+
+        if not file_path.exists():
+            return JSONResponse(
+                {"error": "No log file found for this camera", "camera_id": camera_id},
+                status_code=404
+            )
+
+        with file_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        return JSONResponse(data)
+
+    except Exception as e:
+        print(f"[get_camera_stats] Error reading JSON for camera {camera_id}: {e}")
+        return JSONResponse(
+            {"error": "Internal server error while reading stats JSON"},
+            status_code=500
+        )

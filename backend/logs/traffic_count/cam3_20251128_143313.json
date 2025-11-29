@@ -1,2 +1,0 @@
-{"camera_id": 3, "timestamp": 1764315268.830063, "summary": {"total_entered": 3}, "details": {"truck": {"entered": 1, "current": 0}, "motor": {"entered": 1, "current": 0}, "car": {"entered": 1, "current": 2}}}
-{"camera_id": 3, "timestamp": 1764315341.111544, "summary": {"total_entered": 4}, "details": {"truck": {"entered": 2, "current": 0}, "motor": {"entered": 1, "current": 0}, "car": {"entered": 1, "current": 1}}}
