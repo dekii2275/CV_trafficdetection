@@ -4,8 +4,7 @@ import asyncio
 import time
 from multiprocessing import Manager, Process, Queue
 from datetime import datetime, timedelta
-from sqlalchemy import desc
-from datetime import datetime
+from sqlalchemy import desc, func, cast, Date
 
 # Import Config & Service
 from app.core.config import settings_metric_transport
@@ -14,8 +13,7 @@ from app.api import state
 
 # Import Database Modules
 from app.db.base import SessionLocal  
-# 🔴 FIX 1: Đảm bảo import đúng tên file model (traffic_log số ít)
-from app.models.traffic_logs import TrafficLog 
+from app.models.traffic_log import TrafficLog 
 
 router = APIRouter()
 
@@ -46,31 +44,37 @@ async def save_stats_to_db_worker():
             if sys_state.info_dict:
                 db = SessionLocal()
                 try:
-                    for key, data in sys_state.info_dict.items():
+                    # Copy ra dict thường để tránh lỗi xung đột khi AI Process đang ghi
+                    current_snapshot = dict(sys_state.info_dict)
+                    
+                    for key, data in current_snapshot.items():
                         # key dạng "camera_0" -> lấy id = 0
                         try:
+                            if "_" not in key: continue 
                             cam_id = int(key.split("_")[1])
                         except:
                             continue
 
                         details = data.get('details', {})
                         
+                        # Tạo bản ghi mới vào Postgres
                         log = TrafficLog(
                             camera_id=cam_id,
                             total_vehicles=data.get('total_entered', 0),
                             fps=data.get('fps', 0),
                             # Mapping chi tiết
                             count_car=details.get('car', {}).get('entered', 0),
-                            # Gộp xe máy và xe mô tô phân khối lớn (nếu có)
                             count_motor=details.get('motorcycle', {}).get('entered', 0) + details.get('motorbike', {}).get('entered', 0),
                             count_bus=details.get('bus', {}).get('entered', 0),
                             count_truck=details.get('truck', {}).get('entered', 0),
+                            timestamp=datetime.now()
                         )
                         db.add(log)
                     
                     db.commit()
                 except Exception as e:
                     print(f"❌ Lỗi worker lưu DB: {e}")
+                    db.rollback() 
                 finally:
                     db.close()
                     
@@ -82,12 +86,10 @@ async def save_stats_to_db_worker():
 
 @router.on_event("startup")
 async def startup_event():
-    # 🔴 FIX 2: QUAN TRỌNG NHẤT - CHỐNG KHỞI ĐỘNG KÉP
-    # Nếu manager đã có rồi thì return ngay, không chạy lại code bên dưới
+    # CHỐNG KHỞI ĐỘNG KÉP
     if sys_state.manager is not None:
         print("⚠️ Hệ thống Traffic AI ĐÃ ĐANG CHẠY. Bỏ qua lệnh khởi động thừa.")
         return
-    # -----------------------------------------------------------
 
     print("🚀 Đang khởi động hệ thống Traffic AI (Multiprocessing)...")
     try:
@@ -98,7 +100,6 @@ async def startup_event():
         sys_state.result_queue = Queue()
 
         # 2. Khởi chạy AI Processes
-        # ÉP CỨNG SỐ LƯỢNG CAMERA LÀ 2 (Theo tối ưu)
         num_cameras = 2 
         print(f"📹 Kích hoạt {num_cameras} cameras tối ưu...")
 
@@ -110,7 +111,6 @@ async def startup_event():
             p.start()
             sys_state.processes.append(p)
             print(f"✅ Camera {i} started (PID: {p.pid})")
-            # Nghỉ 1 giây giữa các lần bật cam để tránh sock CPU
             time.sleep(1)
             
         # 3. Kích hoạt Worker lưu DB
@@ -138,8 +138,9 @@ async def get_info_road(camera_id: int):
         return JSONResponse({"error": "System not initialized"}, status_code=500)
 
     key = f"camera_{camera_id}"
-    if key in sys_state.info_dict:
-        return JSONResponse(dict(sys_state.info_dict[key]))
+    data = sys_state.info_dict.get(key)
+    if data:
+        return JSONResponse(dict(data))
     else:
         return JSONResponse({"status": "waiting", "message": f"No data for Camera {camera_id}"})
 
@@ -147,8 +148,9 @@ async def get_info_road(camera_id: int):
 @router.get("/frames/{camera_id}")
 async def get_frame_road(camera_id: int):
     """Lấy ảnh Snapshot"""
-    if sys_state.frame_dict and f"camera_{camera_id}" in sys_state.frame_dict:
-        frame_bytes = sys_state.frame_dict[f"camera_{camera_id}"]
+    key = f"camera_{camera_id}"
+    if sys_state.frame_dict and key in sys_state.frame_dict:
+        frame_bytes = sys_state.frame_dict[key]
         return Response(content=frame_bytes, media_type="image/jpeg")
     return JSONResponse({"error": "No frame"}, status_code=404)
 
@@ -184,6 +186,58 @@ async def get_traffic_trend(camera_id: int = 0, minutes: int = 60):
     finally:
         db.close()
 
+# ========================== CHART APIS (DB BASED - REFACTORED) ==========================
+
+@router.get("/charts/vehicle-distribution")
+async def get_vehicle_distribution():
+    """
+    Lấy tổng số xe hôm nay từ Database để vẽ biểu đồ tròn.
+    Logic: Lấy bản ghi mới nhất (max id) của từng camera trong ngày hôm nay.
+    """
+    db = SessionLocal()
+    try:
+        today = datetime.now().date()
+        
+        # 1. Tìm ID mới nhất của mỗi camera trong ngày hôm nay
+        # SQL: SELECT max(id) FROM traffic_logs WHERE date(timestamp) = today GROUP BY camera_id
+        subquery = db.query(func.max(TrafficLog.id))\
+            .filter(cast(TrafficLog.timestamp, Date) == today)\
+            .group_by(TrafficLog.camera_id)
+        
+        # 2. Lấy dữ liệu chi tiết của các ID đó
+        latest_logs = db.query(TrafficLog).filter(TrafficLog.id.in_(subquery)).all()
+        
+        # 3. Cộng dồn
+        total_car = sum(log.count_car for log in latest_logs)
+        total_motor = sum(log.count_motor for log in latest_logs)
+        total_bus = sum(log.count_bus for log in latest_logs)
+        total_truck = sum(log.count_truck for log in latest_logs)
+        total_all = sum(log.total_vehicles for log in latest_logs)
+        
+        # 4. Tính phần trăm
+        def _pct(val, total): return float(val)/total if total > 0 else 0.0
+
+        return JSONResponse({
+            "date": today.isoformat(),
+            "totals": {
+                "car": total_car,
+                "motor": total_motor,
+                "bus": total_bus,
+                "truck": total_truck,
+                "total_vehicles": total_all
+            },
+            "percentages": {
+                "car": _pct(total_car, total_all),
+                "motor": _pct(total_motor, total_all),
+                "bus": _pct(total_bus, total_all),
+                "truck": _pct(total_truck, total_all)
+            }
+        })
+    except Exception as e:
+        print(f"Lỗi Chart Distribution: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        db.close()
 
 # ========================== WEBSOCKETS (STREAMING) ==========================
 
@@ -226,319 +280,3 @@ async def ws_info(websocket: WebSocket, camera_id: int):
             await asyncio.sleep(0.5)
     except WebSocketDisconnect:
         print(f"Client disconnected info Camera {camera_id}")
-
-@router.get("/stats/{camera_id}")
-async def get_camera_stats(camera_id: int):
-    """
-    Đọc file JSON thống kê trong logs/traffic_count
-    Định dạng file mới: cam{camera_id}_YYYYMMDD.json (hoặc YYMMDD – phải khớp với chỗ lưu)
-    """
-    try:
-        log_dir = Path("logs/traffic_count")
-        if not log_dir.exists():
-            return JSONResponse(
-                {"error": "Log directory not found", "detail": str(log_dir)},
-                status_code=404
-            )
-
-        # Ngày hôm nay
-        today = datetime.now()
-
-        # !!! QUAN TRỌNG:
-        # Nếu lúc lưu bạn dùng %Y%m%d (20251129) thì để đúng như dòng dưới;
-        # nếu bạn dùng %y%m%d (251129) thì sửa lại cho trùng.
-        date_str = today.strftime("%Y%m%d")   # hoặc "%y%m%d" nếu bạn đang dùng 2 số năm
-
-        # Tên file phải khớp với AnalyzeOnRoadBase
-        file_path = log_dir / f"cam{camera_id}_{date_str}.json"
-
-        if not file_path.exists():
-            return JSONResponse(
-                {
-                    "error": "No log file found for this camera today",
-                    "camera_id": camera_id,
-                    "date": today.date().isoformat()
-                },
-                status_code=404
-            )
-
-        with file_path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        return JSONResponse(data)
-
-    except Exception as e:
-        print(f"[get_camera_stats] Error reading JSON for camera {camera_id}: {e}")
-        return JSONResponse(
-            {"error": "Internal server error while reading stats JSON"},
-            status_code=500
-        )
-
-
-@router.get("/dashboard/{camera_id}")
-async def get_camera_dashboard(camera_id: int):
-    """
-    API phục vụ dashboard:
-    - Đọc file JSON theo NGÀY: cam{camera_id}_YYYYMMDD.json
-    - current_stats: car, motor, truck, bus, total_vehicles của khung giờ hiện tại (now.hour)
-    - daily_total: tổng tất cả total_vehicles trong ngày (sum 24 dict)
-    """
-    try:
-        log_dir = Path("logs/traffic_count")
-        if not log_dir.exists():
-            return JSONResponse(
-                {"error": "Log directory not found", "detail": str(log_dir)},
-                status_code=404
-            )
-
-        # Ngày hôm nay
-        now = datetime.now()
-        today = now.date()
-        date_str_file = today.strftime("%Y%m%d")   # dùng trong tên file
-        date_str_display = today.isoformat()       # dùng để hiển thị
-
-        # Tên file phải khớp với logic lưu trong AnalyzeOnRoadBase:
-        # cam{video_index}_{YYYYMMDD}.json
-        file_path = log_dir / f"cam{camera_id}_{date_str_file}.json"
-
-        if not file_path.exists():
-            return JSONResponse(
-                {
-                    "error": "No log file for today",
-                    "camera_id": camera_id,
-                    "date": date_str_display
-                },
-                status_code=404
-            )
-
-        # Đọc dữ liệu trong file
-        with file_path.open("r", encoding="utf-8") as f:
-            raw_data = json.load(f)
-
-        # Hỗ trợ 2 dạng:
-        # - list 24 dict (định dạng mới)
-        # - dict đơn (định dạng cũ) -> wrap vào list cho khỏi lỗi
-        if isinstance(raw_data, list):
-            hourly_data = raw_data
-        elif isinstance(raw_data, dict):
-            hourly_data = [raw_data]
-        else:
-            return JSONResponse(
-                {
-                    "error": "Invalid JSON format",
-                    "detail": "Expected list[dict] or dict"
-                },
-                status_code=500
-            )
-
-        if len(hourly_data) == 0:
-            return JSONResponse(
-                {
-                    "error": "Empty stats file",
-                    "camera_id": camera_id,
-                    "date": date_str_display
-                },
-                status_code=500
-            )
-
-        # Khung giờ hiện tại (0..23), tránh index out of range nếu list nhỏ hơn 24
-        hour_index = min(now.hour, len(hourly_data) - 1)
-        current_hour_data = hourly_data[hour_index] or {}
-
-        # Thông số tại thời điểm hiện tại
-        current_stats = {
-            "car": int(current_hour_data.get("car", 0) or 0),
-            "motor": int(current_hour_data.get("motor", 0) or 0),
-            "bus": int(current_hour_data.get("bus", 0) or 0),
-            "truck": int(current_hour_data.get("truck", 0) or 0),
-            "total_vehicles": int(current_hour_data.get("total_vehicles", 0) or 0),
-        }
-
-        # Tổng lượt xe trong ngày = sum total_vehicles của tất cả dict trong list
-        daily_total = 0
-        for item in hourly_data:
-            if isinstance(item, dict):
-                daily_total += int(item.get("total_vehicles", 0) or 0)
-
-        # Response chuẩn cho frontend dashboard
-        resp = {
-            "camera_id": camera_id,
-            "date": date_str_display,
-            "current_hour": hour_index,
-            "current_stats": current_stats,
-            "daily_total": daily_total,
-        }
-
-        return JSONResponse(resp)
-
-    except Exception as e:
-        print(f"[get_camera_dashboard] Error for camera {camera_id}: {e}")
-        return JSONResponse(
-            {"error": "Internal server error while reading dashboard stats"},
-            status_code=500
-        )
-
-# ===================== HELPER ĐỌC LOG THEO NGÀY =====================
-
-def _load_camera_daily_data(camera_id: int, target_date=None):
-    """
-    Đọc file log theo ngày của 1 camera.
-    Trả về list[dict] (mỗi dict là 1 giờ) hoặc None nếu không có file / lỗi.
-    """
-    try:
-        log_dir = Path("logs/traffic_count")
-        if not log_dir.exists():
-            return None
-
-        if target_date is None:
-            target_date = datetime.now().date()
-
-        date_str = target_date.strftime("%Y%m%d")
-        file_path = log_dir / f"cam{camera_id}_{date_str}.json"
-
-        if not file_path.exists():
-            return None
-
-        with file_path.open("r", encoding="utf-8") as f:
-            raw = json.load(f)
-
-        if isinstance(raw, list):
-            return raw
-        elif isinstance(raw, dict):
-            # format cũ: 1 dict → wrap vào list cho dễ xử lý
-            return [raw]
-        else:
-            return None
-    except Exception as e:
-        print(f"[_load_camera_daily_data] Error loading camera {camera_id}: {e}")
-        return None
-
-@router.get("/charts/vehicle-distribution")
-async def get_vehicle_distribution():
-    """
-    Tổng hợp phân bố theo loại phương tiện trong NGÀY HÔM NAY,
-    gộp tất cả các camera đang chạy.
-    """
-    today = datetime.now().date()
-
-    # Lấy số camera đang chạy từ sys_state.processes (đã khởi tạo ở startup)
-    num_cameras_config = len(sys_state.processes) if sys_state.processes else 0
-
-    if num_cameras_config == 0:
-        return JSONResponse(
-            {"error": "No active cameras in system"},
-            status_code=500,
-        )
-
-    total_car = 0
-    total_truck = 0
-    total_bike = 0    # motor
-    total_bus = 0
-    used_cameras = 0
-
-    # Duyệt qua tất cả camera đang chạy
-    for cam_id in range(num_cameras_config):
-        day_data = _load_camera_daily_data(cam_id, today)
-        if not day_data:
-            continue
-
-        used_cameras += 1
-
-        for item in day_data:
-            if not isinstance(item, dict):
-                continue
-            total_car += int(item.get("car", 0) or 0)
-            total_truck += int(item.get("truck", 0) or 0)
-            total_bike += int(item.get("motor", 0) or 0)
-            total_bus += int(item.get("bus", 0) or 0)
-
-    if used_cameras == 0:
-        return JSONResponse(
-            {
-                "error": "No log files for today",
-                "date": today.isoformat(),
-            },
-            status_code=404,
-        )
-
-    total_all = total_car + total_truck + total_bike + total_bus
-
-    def _pct(x: int, base: int) -> float:
-        return float(x) / base if base > 0 else 0.0
-
-    resp = {
-        "date": today.isoformat(),
-        "num_cameras": used_cameras,
-        "totals": {
-            "car": total_car,
-            "truck": total_truck,
-            "bike": total_bike,
-            "bus": total_bus,
-            "total_vehicles": total_all,
-        },
-        "percentages": {
-            "car": _pct(total_car, total_all),
-            "truck": _pct(total_truck, total_all),
-            "bike": _pct(total_bike, total_all),
-            "bus": _pct(total_bus, total_all),
-        },
-    }
-    return JSONResponse(resp)
-
-@router.get("/charts/hourly-flow")
-async def get_hourly_flow():
-    """
-    Lưu lượng theo giờ trong NGÀY HÔM NAY,
-    gộp tất cả camera (tổng số total_vehicles mỗi giờ).
-    """
-    today = datetime.now().date()
-    now = datetime.now()
-    current_hour = now.hour
-
-    num_cameras_config = len(sys_state.processes) if sys_state.processes else 0
-    if num_cameras_config == 0:
-        return JSONResponse(
-            {"error": "No active cameras in system"},
-            status_code=500,
-        )
-
-    # Khởi tạo 24 giờ = 0
-    hours = [
-        {"hour": h, "label": f"{h:02d}h", "total_vehicles": 0}
-        for h in range(24)
-    ]
-
-    used_cameras = 0
-
-    for cam_id in range(num_cameras_config):
-        day_data = _load_camera_daily_data(cam_id, today)
-        if not day_data:
-            continue
-
-        used_cameras += 1
-
-        max_h = min(24, len(day_data))
-        for h in range(max_h):
-            item = day_data[h]
-            if not isinstance(item, dict):
-                continue
-            hours[h]["total_vehicles"] += int(item.get("total_vehicles", 0) or 0)
-
-    if used_cameras == 0:
-        return JSONResponse(
-            {
-                "error": "No log files for today",
-                "date": today.isoformat(),
-            },
-            status_code=404,
-        )
-
-    # Cắt tới giờ hiện tại để tránh đuôi toàn 0
-    hours_trimmed = [entry for entry in hours if entry["hour"] <= current_hour]
-
-    resp = {
-        "date": today.isoformat(),
-        "num_cameras": used_cameras,
-        "hours": hours_trimmed,
-    }
-    return JSONResponse(resp)
