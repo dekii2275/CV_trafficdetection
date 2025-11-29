@@ -98,42 +98,15 @@ def headless_loop(stats_path, classes, interval=30, agg_freq="1T", minutes_windo
                 continue
             ts = datetime.now().strftime('%Y%m%d_%H%M%S')
             out_prefix = f"data/figures/realtime_{ts}"
-            try:
-                plot_line_chart(df, classes, out_path=out_prefix + "_line.png")
-            except Exception as e:
-                print('line chart save failed:', e)
-            try:
-                plot_grouped_bar_minute(df, classes, out_path=out_prefix + "_grouped.png")
-            except Exception as e:
-                print('grouped bar save failed:', e)
-            try:
-                plot_area_chart(df, classes, out_path=out_prefix + "_area.png")
-            except Exception as e:
-                print('area chart save failed:', e)
-            try:
-                plot_pie_chart(df, classes, out_path=out_prefix + "_pie.png")
-            except Exception as e:
-                print('pie chart save failed:', e)
-            try:
-                plot_hist_total(df, out_path=out_prefix + "_hist.png")
-            except Exception as e:
-                print('histogram save failed:', e)
-            try:
-                plot_boxplot(df, classes, out_path=out_prefix + "_box.png")
-            except Exception as e:
-                print('boxplot save failed:', e)
-            try:
-                plot_rolling_avg(df, classes, window=5, out_path=out_prefix + "_roll.png")
-            except Exception as e:
-                print('rolling avg save failed:', e)
-            try:
-                plot_peak_detection(df, out_path=out_prefix + "_peak.png")
-            except Exception as e:
-                print('peak detection save failed:', e)
-            try:
-                plot_stacked_bar_percentage(df, classes, out_path=out_prefix + "_stack.png")
-            except Exception as e:
-                print('stacked pct save failed:', e)
+            plot_line_chart(df, classes, out_path=out_prefix + "_line.png")
+            plot_grouped_bar_minute(df, classes, out_path=out_prefix + "_grouped.png")
+            plot_area_chart(df, classes, out_path=out_prefix + "_area.png")
+            plot_pie_chart(df, classes, out_path=out_prefix + "_pie.png")
+            plot_hist_total(df, out_path=out_prefix + "_hist.png")
+            plot_boxplot(df, classes, out_path=out_prefix + "_box.png")
+            plot_rolling_avg(df, classes, window=5, out_path=out_prefix + "_roll.png")
+            plot_peak_detection(df, out_path=out_prefix + "_peak.png")
+            plot_stacked_bar_percentage(df, classes, out_path=out_prefix + "_stack.png")
             print(f"[{datetime.now()}] Saved snapshots with prefix {out_prefix}")
             time.sleep(interval)
     except KeyboardInterrupt:
