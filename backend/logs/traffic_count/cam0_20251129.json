@@ -1,0 +1,194 @@
+[
+  {
+    "timestamp": "2025-11-29T00:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T01:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T02:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T03:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T04:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T05:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T06:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T07:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T08:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T09:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T10:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T11:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T12:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T13:31:50.983136",
+    "car": 0,
+    "motor": 2,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 2
+  },
+  {
+    "timestamp": "2025-11-29T14:18:45.322430",
+    "car": 3,
+    "motor": 9,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 12
+  },
+  {
+    "timestamp": "2025-11-29T15:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T16:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T17:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T18:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T19:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T20:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T21:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T22:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  },
+  {
+    "timestamp": "2025-11-29T23:00:00",
+    "car": 0,
+    "motor": 0,
+    "bus": 0,
+    "truck": 0,
+    "total_vehicles": 0
+  }
+]
