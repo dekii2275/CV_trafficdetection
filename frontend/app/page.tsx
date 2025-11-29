@@ -2,95 +2,157 @@ import Sidebar from "./components/sidebar/Sidebar";
 import VideoPlayer from "./components/stream/VideoPlayer";
 import RealtimeStats from "./components/stats/RealtimeStats";
 import ChartCard from "./components/charts/ChartCard";
-import RealtimeCounterChart from "./components/charts/RealtimeCounterChart";
-import VehicleLineChart from "./components/charts/VehicleLineChart";
-import SummaryTable from "./components/table/SummaryTable";
-import TableRow from "./components/table/TableRow";
-import Card from "./components/ui/Card";
-import { formatNumber } from "./lib/utils";
-import type { CameraSummary, ChartPoint } from "./lib/types";
+import PieChart from "./components/charts/PieChart";
+import BarChart from "./components/charts/BarChart";
+import AnalyticsStats from "./components/analytics/AnalyticsStats";
+import type { ChartPoint } from "./lib/types";
 
-const vehicleBreakdown = [
-  { label: "Cars", value: 12140 },
-  { label: "Trucks", value: 3820 },
-  { label: "Bikes", value: 1840 },
-  { label: "Buses", value: 620 },
-];
+type VehicleBreakdownItem = { label: string; value: number };
 
-const hourlyFlow: ChartPoint[] = [
-  { label: "08h", value: 260 },
-  { label: "09h", value: 320 },
-  { label: "10h", value: 340 },
-  { label: "11h", value: 300 },
-  { label: "12h", value: 280 },
-  { label: "13h", value: 290 },
-];
+type HourlyStat = {
+  timestamp?: string;
+  car?: number;
+  motor?: number;
+  bus?: number;
+  truck?: number;
+  total_vehicles?: number;
+};
 
-const cameraSummaries: CameraSummary[] = [
-  { camera: "Cam 01 · Xa Lộ", vehicles: 482, dominantType: "car" },
-  { camera: "Cam 02 · Trung Tâm", vehicles: 356, dominantType: "bike" },
-  { camera: "Cam 03 · Cảng", vehicles: 298, dominantType: "truck" },
-  { camera: "Cam 04 · BRT", vehicles: 214, dominantType: "bus" },
-];
+type CameraChartData = {
+  vehicleBreakdown: VehicleBreakdownItem[];
+  hourlyFlow: ChartPoint[];
+};
 
-const totalToday = vehicleBreakdown.reduce((sum, item) => sum + item.value, 0);
+export default async function DashboardPage() {
+  const API_BASE =
+    process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-export default function DashboardPage() {
+  async function fetchCameraChartData(
+    cameraId: number,
+  ): Promise<CameraChartData> {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/stats/${cameraId}`, {
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        console.warn(`stats ${cameraId} HTTP ${res.status}`);
+        return { vehicleBreakdown: [], hourlyFlow: [] };
+      }
+
+      const data = (await res.json()) as HourlyStat[] | HourlyStat;
+      const hourlyArray: HourlyStat[] = Array.isArray(data) ? data : [data];
+
+      let totalCar = 0;
+      let totalTruck = 0;
+      let totalMotor = 0;
+      let totalBus = 0;
+      let totalAllVehicles = 0;
+
+      const hourlyFlow: ChartPoint[] = [];
+
+      const maxHours = Math.min(24, hourlyArray.length);
+      for (let h = 0; h < maxHours; h++) {
+        const item = hourlyArray[h] || {};
+        const car = Number(item.car ?? 0);
+        const truck = Number(item.truck ?? 0);
+        const motor = Number(item.motor ?? 0);
+        const bus = Number(item.bus ?? 0);
+        const totalVehicles = Number(item.total_vehicles ?? 0);
+
+        // Sum từng loại xe (mỗi giờ là độc lập)
+        totalCar += car;
+        totalTruck += truck;
+        totalMotor += motor;
+        totalBus += bus;
+        totalAllVehicles += totalVehicles;
+
+        hourlyFlow.push({
+          label: `${h.toString().padStart(2, "0")}h`,
+          value: totalVehicles,
+        });
+      }
+
+      // Đảm bảo tính nhất quán: nếu sum từng loại khác với total_vehicles,
+      // ưu tiên dùng total_vehicles (vì nó là giá trị chính thức)
+      const sumByType = totalCar + totalTruck + totalMotor + totalBus;
+      const useTotalVehicles = Math.abs(sumByType - totalAllVehicles) > 1; // Cho phép sai số nhỏ
+
+      const vehicleBreakdown: VehicleBreakdownItem[] = [
+        { label: "Cars", value: totalCar },
+        { label: "Trucks", value: totalTruck },
+        { label: "Motors", value: totalMotor },
+        { label: "Buses", value: totalBus },
+      ];
+
+      return { vehicleBreakdown, hourlyFlow };
+    } catch (e) {
+      console.error("fetchCameraChartData error:", e);
+      return { vehicleBreakdown: [], hourlyFlow: [] };
+    }
+  }
+
+  const [cam0Charts, cam1Charts] = await Promise.all([
+    fetchCameraChartData(0),
+    fetchCameraChartData(1),
+  ]);
+
   return (
     <div className="flex min-h-screen w-full bg-slate-950 text-slate-100">
       <Sidebar />
+
       <section className="flex-1 space-y-6 p-6">
+        {/* Header */}
         <header className="flex flex-col gap-2">
-          <p className="text-sm uppercase tracking-wide text-emerald-400">Live counting</p>
+          <p className="text-sm uppercase tracking-wide text-emerald-400">
+            Live counting
+          </p>
           <h1 className="text-2xl font-semibold">Traffic AI Vehicle Counter</h1>
           <p className="text-sm text-slate-400">
-            Dashboard này chỉ tập trung vào thống kê số lượng phương tiện được hệ thống đếm theo thời gian thực.
+            Hệ thống giám sát 2 camera, hiển thị thống kê realtime cho từng
+            camera và biểu đồ theo loại phương tiện / theo thời gian.
           </p>
         </header>
 
-        <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-          <VideoPlayer />
-          <Card>
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Tổng lượt ghi nhận hôm nay</h3>
-            <p className="my-4 text-3xl font-bold text-white">{formatNumber(totalToday)}</p>
-            <p className="text-sm text-slate-400">
-              Con số này chỉ bao gồm lượng phương tiện đi ngang vùng đếm, không bao gồm thông tin tai nạn hay kẹt xe.
-            </p>
-          </Card>
+        {/* HÀNG 1: Grid camera (component VideoPlayer của bạn đã chia 2 camera) */}
+        <VideoPlayer
+          roadName="default"
+          backendUrl="ws://localhost:8000"
+        />
+
+        {/* HÀNG 2: Realtime stats từng camera */}
+        <div className="grid gap-6 xl:grid-cols-2">
+          <RealtimeStats cameraId={0} cameraLabel="Camera 1" />
+          <RealtimeStats cameraId={1} cameraLabel="Camera 2" />
         </div>
 
-        <RealtimeStats />
+        {/* HÀNG 3: Phân bố theo loại phương tiện (Biểu đồ tròn) */}
+        <div className="grid gap-6 xl:grid-cols-2">
+          <ChartCard title="Phân bố theo loại phương tiện • Camera 1">
+            <PieChart data={cam0Charts.vehicleBreakdown} />
+          </ChartCard>
 
-        <div className="grid gap-6 xl:grid-cols-3">
-          <ChartCard title="Phân bổ theo loại phương tiện">
-            <RealtimeCounterChart data={vehicleBreakdown} />
+          <ChartCard title="Phân bố theo loại phương tiện • Camera 2">
+            <PieChart data={cam1Charts.vehicleBreakdown} />
           </ChartCard>
-          <ChartCard title="Lưu lượng theo giờ">
-            <VehicleLineChart points={hourlyFlow} />
-          </ChartCard>
-          <Card>
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Ghi chú</h3>
-            <p className="mt-2 text-sm text-slate-300">
-              Mỗi camera chỉ gửi về số lượng phương tiện theo từng khung hình. Các tín hiệu về tai nạn hoặc sự cố đã được
-              loại bỏ để đảm bảo dashboard chỉ phục vụ nhu cầu đếm xe.
-            </p>
-          </Card>
         </div>
 
-        <Card>
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">Camera theo phút</h2>
-              <p className="text-sm text-slate-400">Top camera với số lượt đếm cao nhất</p>
-            </div>
-            <span className="text-xs text-slate-500">Số liệu được làm mới liên tục</span>
-          </div>
-          <SummaryTable>
-            {cameraSummaries.map((summary) => (
-              <TableRow key={summary.camera} {...summary} />
-            ))}
-          </SummaryTable>
-        </Card>
+        {/* HÀNG 4: Lưu lượng theo giờ (Biểu đồ cột) */}
+        <div className="grid gap-6 xl:grid-cols-2">
+          <ChartCard title="Lưu lượng theo giờ • Camera 1">
+            <BarChart points={cam0Charts.hourlyFlow} />
+          </ChartCard>
+
+          <ChartCard title="Lưu lượng theo giờ • Camera 2">
+            <BarChart points={cam1Charts.hourlyFlow} />
+          </ChartCard>
+        </div>
+
+        {/* HÀNG 5: Phân tích thống kê nâng cao từ analyze.py */}
+        <div className="grid gap-6 xl:grid-cols-2">
+          <AnalyticsStats cameraId={0} cameraLabel="Camera 1" />
+          <AnalyticsStats cameraId={1} cameraLabel="Camera 2" />
+        </div>
       </section>
     </div>
   );

@@ -1,144 +1,283 @@
 """
-Script để build vector database từ các file luật giao thông
-Chạy script này mỗi khi có văn bản luật mới
+Script để build vector database từ các file luật giao thông.
+Đã sửa lỗi Import LangChain và lỗi tham số dòng lệnh.
 
 Usage:
-    python -m app.utils.build_vector_db
+    python3 app/utils/build_vectordatabase.py --reset
 """
 
 import sys
+import os
+import re
+import shutil
+from typing import List
 from pathlib import Path
+import docx  # Yêu cầu: pip install python-docx
 
-# Add parent directory to path
-sys.path.append(str(Path(__file__).parent.parent.parent))
+# --- 1. SỬA LỖI IMPORT LANGCHAIN ---
+# Tự động detect phiên bản LangChain để import đúng
+try:
+    # Dành cho phiên bản LangChain mới (v0.1+)
+    from langchain_core.documents import Document
+except ImportError:
+    try:
+        # Dành cho phiên bản cũ hơn
+        from langchain.schema import Document
+    except ImportError:
+        # Fallback cuối cùng
+        from langchain.docstore.document import Document
 
-from app.services.rag_services.vector_store import VectorStoreService
-from app.services.rag_services.document_process import DocumentProcessor
+# --- 2. CẤU HÌNH ĐƯỜNG DẪN TUYỆT ĐỐI ---
+# Lấy vị trí thực tế của file này
+FILE_PATH = Path(__file__).resolve()
+# Cấu trúc thư mục: .../CV_trafficdetection/backend/app/utils/build_vectordatabase.py
+# Parents: [0]=utils, [1]=app, [2]=backend, [3]=CV_trafficdetection (Project Root)
+PROJECT_ROOT = FILE_PATH.parents[3] 
+BACKEND_ROOT = FILE_PATH.parents[2] 
 
+# Thêm backend vào sys.path để Python tìm thấy các module nội bộ (như app.services...)
+sys.path.append(str(BACKEND_ROOT))
 
-def build_vector_database(
-    documents_dir: str = "./data/law_documents",
-    reset: bool = False
-):
+# Định nghĩa đường dẫn Data (Tuyệt đối)
+ABS_DOCS_DIR = PROJECT_ROOT / "data" / "law_documents"
+ABS_DB_DIR = PROJECT_ROOT / "data" / "chroma_db"
+
+# Import service của bạn
+try:
+    from app.services.rag_services.vector_store import VectorStoreService
+except ImportError as e:
+    print(f"❌ Lỗi Import Service: {e}")
+    print(f"👉 Đảm bảo bạn đang đứng ở thư mục 'backend' và file vector_store.py tồn tại.")
+    sys.exit(1)
+
+# ============================================================
+# 3. CLASS XỬ LÝ VĂN BẢN LUẬT (LOGIC CHIA NHỎ)
+# ============================================================
+class TrafficLawProcessor:
     """
-    Build vector database từ các file luật
-    
-    Args:
-        documents_dir: Thư mục chứa file .doc/.docx
-        reset: True để xóa và rebuild từ đầu
+    Xử lý văn bản luật: Tách Điều -> Khoản -> Điểm để tránh mất thông tin
     """
-    print("="*60)
-    print("🚀 RAG VECTOR DATABASE BUILDER")
-    print("="*60)
+    def __init__(self):
+        # Regex tìm "Điều X."
+        self.article_pattern = r"(^|\n)(Điều \d+\..*?)(?=\nĐiều \d+\.|$)"
+        # Regex tìm "1. ", "2. " (Khoản)
+        self.clause_pattern = r"(^|\n)(\d+)\.\s+(.*?)(?=(\n\d+\.\s+)|$)"
+        # Regex tìm "a) ", "b) ", "đ) " (Điểm)
+        self.point_pattern = r"(^|\n)([a-zđ])\)\s+(.*?)(?=(\n[a-zđ]\))|$)" 
     
-    # Khởi tạo services
-    print("\n📦 Initializing services...")
+    def read_docx(self, file_path: str) -> str:
+        """Đọc file .docx và chuyển thành string"""
+        try:
+            doc = docx.Document(file_path)
+            full_text = []
+            for para in doc.paragraphs:
+                txt = para.text.strip()
+                if txt:
+                    full_text.append(txt)
+            return "\n".join(full_text)
+        except Exception as e:
+            print(f"❌ Lỗi đọc file {file_path}: {e}")
+            return ""
+
+    def identify_vehicle_type(self, text: str) -> str:
+        """Nhận diện loại xe từ tiêu đề Điều luật"""
+        text_lower = text.lower()
+        if "xe ô tô" in text_lower: return "oto"
+        if "xe mô tô" in text_lower or "xe gắn máy" in text_lower: return "xemay"
+        if "xe đạp" in text_lower or "xe thô sơ" in text_lower: return "xedap"
+        if "người đi bộ" in text_lower: return "nguoidibo"
+        return "chung"
+
+    def process_document(self, file_path: str) -> List[Document]:
+        text = self.read_docx(file_path)
+        if not text: return []
+        
+        chunks = []
+        source_name = Path(file_path).name
+        
+        # B1: Tách các Điều (Articles)
+        articles = re.finditer(self.article_pattern, text, re.DOTALL)
+        
+        for art_match in articles:
+            article_full_text = art_match.group(2)
+            # Lấy dòng đầu tiên làm tiêu đề (VD: Điều 5. Xử phạt...)
+            article_header = article_full_text.strip().split('\n')[0]
+            vehicle_type = self.identify_vehicle_type(article_header)
+            
+            # B2: Tách các Khoản (Clauses) trong Điều
+            clauses = re.finditer(self.clause_pattern, article_full_text, re.DOTALL)
+            has_clauses = False
+            
+            for clause_match in clauses:
+                has_clauses = True
+                clause_num = clause_match.group(2)
+                clause_body = clause_match.group(3).strip()
+                
+                # B3: Tách các Điểm (Points: a, b, c...) trong Khoản
+                points = list(re.finditer(self.point_pattern, clause_body, re.DOTALL))
+                
+                if points:
+                    # Lấy phần dẫn nhập (VD: "Phạt tiền từ 200k... hành vi sau:")
+                    intro_text = clause_body[:points[0].start()].strip()
+                    
+                    for p_match in points:
+                        p_label = p_match.group(2) # a, b, c
+                        p_content = p_match.group(3).strip()
+                        
+                        # Tạo nội dung Chunk chi tiết
+                        full_content = (
+                            f"ĐIỀU LUẬT: {article_header}\n"
+                            f"MỨC PHẠT (Khoản {clause_num}): {intro_text}\n"
+                            f"HÀNH VI VI PHẠM (Điểm {p_label}): {p_content}"
+                        )
+                        
+                        chunks.append(Document(
+                            page_content=full_content,
+                            metadata={
+                                "source": source_name,
+                                "article": article_header.split('.')[0], # VD: Điều 5
+                                "vehicle": vehicle_type,
+                                "level": "point" # Cấp độ chi tiết nhất
+                            }
+                        ))
+                else:
+                    # Nếu không có điểm a,b,c -> Lấy nguyên Khoản
+                    full_content = (
+                        f"ĐIỀU LUẬT: {article_header}\n"
+                        f"NỘI DUNG (Khoản {clause_num}): {clause_body}"
+                    )
+                    chunks.append(Document(
+                        page_content=full_content,
+                        metadata={
+                            "source": source_name,
+                            "article": article_header.split('.')[0],
+                            "vehicle": vehicle_type,
+                            "level": "clause"
+                        }
+                    ))
+
+            # Nếu Điều quá ngắn không có khoản (chỉ có text)
+            if not has_clauses:
+                chunks.append(Document(
+                    page_content=article_full_text, 
+                    metadata={"source": source_name, "vehicle": vehicle_type, "level": "article"}
+                ))
+                
+        return chunks
+
+# ============================================================
+# 4. HÀM CHÍNH: BUILD DATABASE
+# ============================================================
+def build_vector_database(documents_dir: str = str(ABS_DOCS_DIR), reset: bool = False):
+    print("\n" + "="*60)
+    print("🚀 RAG BUILDER: SMART CHUNKING (Luật Giao Thông)")
+    print("="*60)
+    print(f"📂 Đọc tài liệu từ: {documents_dir}")
+    print(f"📂 Lưu Database tại: {ABS_DB_DIR}")
+    
+    # Xử lý tham số Reset
+    if reset:
+        if ABS_DB_DIR.exists():
+            print(f"🗑️  Đang xóa database cũ để làm sạch dữ liệu...")
+            shutil.rmtree(ABS_DB_DIR)
+        else:
+            print("⚠️  Không tìm thấy database cũ, sẽ tạo mới hoàn toàn.")
+    
+    # Init Vector Store
+    print(f"📦 Đang khởi tạo Vector Store...")
     vector_store = VectorStoreService(
         collection_name="traffic_laws",
-        persist_directory="./data/chroma_db"
+        persist_directory=str(ABS_DB_DIR)
     )
+
+    # Xử lý file
+    processor = TrafficLawProcessor()
+    all_documents = []
     
-    processor = DocumentProcessor(
-        chunk_size=500,
-        chunk_overlap=100
-    )
-    
-    # Reset nếu cần
-    if reset:
-        print("\n🗑️ Resetting vector database...")
-        vector_store.reset_and_rebuild()
-    
-    # Kiểm tra số documents hiện có
-    info = vector_store.get_collection_info()
-    print(f"\n📊 Current database status:")
-    print(f"   - Collection: {info['name']}")
-    print(f"   - Documents: {info['total_documents']}")
-    print(f"   - Location: {info['persist_directory']}")
-    
-    # Process documents
-    print(f"\n📄 Processing law documents from: {documents_dir}")
-    documents, metadatas = processor.process_law_documents(documents_dir)
-    
-    if not documents:
-        print("⚠️ No documents found to process!")
+    if not os.path.exists(documents_dir):
+        print(f"❌ LỖI: Thư mục tài liệu không tồn tại: {documents_dir}")
+        print(f"👉 Vui lòng tạo thư mục này và copy file .docx vào đó.")
         return
+
+    files = [f for f in os.listdir(documents_dir) if f.endswith(".docx") or f.endswith(".doc")]
+    if not files:
+        print(f"⚠️  CẢNH BÁO: Thư mục {documents_dir} trống! Hãy copy file luật vào.")
+        return
+
+    for filename in files:
+        file_path = os.path.join(documents_dir, filename)
+        print(f"\n📄 Đang xử lý file: {filename}...")
+        
+        chunks = processor.process_document(file_path)
+        all_documents.extend(chunks)
+        print(f"   -> Tạo được {len(chunks)} chunks dữ liệu.")
+
+    if not all_documents:
+        print("⚠️ Không tạo được dữ liệu nào. Kiểm tra lại nội dung file input.")
+        return
+
+    # Lưu vào ChromaDB
+    print(f"\n💾 Đang lưu {len(all_documents)} chunks vào Database (Quá trình này có thể mất vài phút)...")
     
-    # Add to vector store
-    print(f"\n💾 Adding {len(documents)} chunks to vector database...")
-    vector_store.add_documents(
-        documents=documents,
-        metadatas=metadatas
+    texts = [doc.page_content for doc in all_documents]
+    metadatas = [doc.metadata for doc in all_documents]
+    
+    vector_store.add_documents(documents=texts, metadatas=metadatas)
+    print("\n✅ XÂY DỰNG DATABASE THÀNH CÔNG!")
+
+# ============================================================
+# 5. HÀM TEST TRUY VẤN
+# ============================================================
+def test_search(query: str):
+    print("\n" + "="*60)
+    print(f"🧪 TEST TRUY VẤN THỬ: \"{query}\"")
+    print("="*60)
+    
+    if not ABS_DB_DIR.exists():
+        print("❌ Database chưa được xây dựng. Hãy chạy lệnh build trước.")
+        return
+
+    vector_store = VectorStoreService(
+        collection_name="traffic_laws",
+        persist_directory=str(ABS_DB_DIR)
     )
     
-    # Final stats
-    final_info = vector_store.get_collection_info()
-    print("\n" + "="*60)
-    print("✅ BUILD COMPLETED")
-    print("="*60)
-    print(f"📊 Final Statistics:")
-    print(f"   - Total documents in DB: {final_info['total_documents']}")
-    print(f"   - New documents added: {len(documents)}")
-    print(f"   - Location: {final_info['persist_directory']}")
-    print("\n💡 Your RAG chatbot is ready to use!")
-    print("="*60)
-
-
-def test_search(query: str = "Phạt bao nhiêu khi không đội mũ bảo hiểm?"):
-    """
-    Test search functionality
-    """
-    print("\n" + "="*60)
-    print("🧪 TESTING SEARCH FUNCTIONALITY")
-    print("="*60)
-    
-    vector_store = VectorStoreService()
-    
-    print(f"\n🔍 Query: {query}")
     results = vector_store.search(query, top_k=3)
     
-    print(f"\n📋 Top {len(results)} results:")
-    for i, result in enumerate(results, 1):
-        print(f"\n--- Result {i} (Score: {result['similarity_score']:.2%}) ---")
-        print(f"Law: {result['metadata'].get('law_name')}")
-        print(f"Article: {result['metadata'].get('article_number')} - {result['metadata'].get('article_title')}")
-        print(f"Content preview: {result['document'][:200]}...")
-
+    print(f"🔍 Tìm thấy {len(results)} kết quả liên quan nhất:\n")
+    for i, res in enumerate(results, 1):
+        # Lấy thông tin an toàn
+        score = res.get('similarity_score', 0)
+        meta = res.get('metadata', {})
+        content = res.get('document', '')
+        
+        # Làm gọn nội dung để hiển thị
+        preview = content[:250].replace('\n', ' ') + "..."
+        
+        print(f"--- Top {i} (Độ khớp: {score:.2f}) ---")
+        print(f"📌 Nguồn: {meta.get('source', 'N/A')} | {meta.get('article', 'N/A')}")
+        print(f"📖 Nội dung: {preview}\n")
 
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="Build RAG Vector Database")
-    parser.add_argument(
-        "--documents-dir",
-        type=str,
-        default="./data/law_documents",
-        help="Directory containing law documents"
-    )
-    parser.add_argument(
-        "--reset",
-        action="store_true",
-        help="Reset and rebuild database from scratch"
-    )
-    parser.add_argument(
-        "--test",
-        action="store_true",
-        help="Run search test after building"
-    )
-    parser.add_argument(
-        "--test-query",
-        type=str,
-        default="Phạt bao nhiêu khi không đội mũ bảo hiểm?",
-        help="Query for testing"
-    )
+    # Cấu hình Argument Parser
+    parser = argparse.ArgumentParser(description="Tool build dữ liệu cho Chatbot Giao thông")
+    
+    # Thêm argument --reset (store_true nghĩa là nếu có cờ này thì giá trị là True)
+    parser.add_argument("--reset", action="store_true", help="Xóa sạch DB cũ và build lại từ đầu")
+    
+    # Thêm argument --test-query
+    parser.add_argument("--test-query", type=str, default="không đội mũ bảo hiểm phạt bao nhiêu", help="Câu hỏi để test thử sau khi build")
+    
+    # Thêm argument --skip-build
+    parser.add_argument("--skip-build", action="store_true", help="Chỉ chạy test, không build lại DB")
     
     args = parser.parse_args()
     
-    # Build database
-    build_vector_database(
-        documents_dir=args.documents_dir,
-        reset=args.reset
-    )
+    # Logic chạy chính
+    if not args.skip_build:
+        build_vector_database(reset=args.reset)
     
-    # Test nếu cần
-    if args.test:
-        test_search(args.test_query)
+    # Luôn chạy test sau khi build xong (hoặc nếu skip-build)
+    test_search(args.test_query)

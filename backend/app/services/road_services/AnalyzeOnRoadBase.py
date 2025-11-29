@@ -1,4 +1,3 @@
-import os
 import cv2
 import numpy as np
 from datetime import datetime
@@ -6,409 +5,359 @@ from ultralytics import YOLO
 import yt_dlp
 import json
 from pathlib import Path
-
+import traceback
+import time
 from app.core.config import settings_metric_transport
+import os
 
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
-
-# ============================================================
-# 1. LẤY DIRECT STREAM YOUTUBE
-# ============================================================
-def get_stream_url(youtube_url):
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "format": "bestvideo[height<=720]+bestaudio/best[height<=720]",
-    }
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(youtube_url, download=False)
-            if info and "url" in info:
-                print("✅ Lấy stream YouTube thành công.")
-                return info["url"]
-    except Exception as e:
-        print(f"❌ Lỗi lấy link YouTube: {e}")
-    return None
-
-
-# ============================================================
-# 2. CLASS ĐẾM XE - SIMPLE JSON FORMAT
-# ============================================================
 class AnalyzeOnRoadBase:
     """
-    Logic đếm xe với tự động lưu JSON mỗi 1 phút (format đơn giản)
+    Traffic Counter Base Class - SUPER LIGHTWEIGHT VERSION (360p + Skip 5)
     """
 
-    def __init__(self, video_index=0, show=True, count_conf=0.4, 
+    def __init__(self, video_index=0, shared_dict=None, result_queue=None,
+                 show=False, count_conf=0.4, frame_dict=None,
                  auto_save=True, save_interval_seconds=60):
 
+        # --- Validation ---
+        if video_index >= len(settings_metric_transport.PATH_VIDEOS):
+            raise ValueError(f"Video index {video_index} out of range.")
+        
+        # --- Config ---
+        self.video_index = video_index
         self.path_video = settings_metric_transport.PATH_VIDEOS[video_index]
         self.model_path = settings_metric_transport.MODELS_PATH
         self.device = settings_metric_transport.DEVICE
-        self.video_index = video_index
+        self.roi_pts = settings_metric_transport.REGIONS[video_index].astype(np.int32).reshape((-1, 1, 2))
 
-        # ===== ROI từ config =====
-        self.roi_pts = settings_metric_transport.REGIONS[video_index].astype(np.int32)
-        self.roi_pts = self.roi_pts.reshape((-1, 1, 2))
-
+        # --- Shared Data ---
+        self.shared_dict = shared_dict
+        self.frame_dict = frame_dict    
+        self.result_queue = result_queue
         self.show = show
         self.count_conf = count_conf
 
-        # ===== AUTO SAVE CONFIG =====
+        # ===== 🚀 CẤU HÌNH TỐI ƯU =====
+        self.skip_frames = 3       # Skip 5 frame (AI nghỉ ngơi nhiều hơn)
+        self.process_width = 480    # Resize xử lý nhỏ
+        self.process_height = 270 
+        self.last_result = None
+        
+        # ===== Auto Save =====
         self.auto_save = auto_save
         self.save_interval_seconds = save_interval_seconds
         self.last_save_time = datetime.now()
         self.session_start_time = datetime.now()
         
-        # Tạo thư mục logs
         self.logs_dir = Path("logs/traffic_count")
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        
-        # File log cho session hiện tại
-        session_id = self.session_start_time.strftime("%Y%m%d_%H%M%S")
-        self.json_file = self.logs_dir / f"traffic_count_camera{video_index}_{session_id}.json"
-        
-        print(f"📁 JSON output: {self.json_file}")
 
-        # ===== Load YOLO =====
-        self.model = YOLO(self.model_path)
-        print(f"✅ Loaded model: {self.model_path}")
-        print(f"✅ Device: {self.device}")
-        print(f"✅ Auto-save: {'ON' if auto_save else 'OFF'} (every {save_interval_seconds}s)")
+        # Mỗi camera luôn dùng 1 file cố định, ví dụ: cam0.json, cam1.json
+        self.current_day = datetime.now().date()
 
-        # ===== STATE =====
+        # ===== Model Loading =====
+        try:
+            self.model = YOLO(self.model_path)
+            print(f"[Camera {video_index}] ✅ Model loaded")
+        except Exception as e:
+            print(f"[Camera {video_index}] ❌ Model load failed: {e}")
+            raise
+
+        # ===== Tracking State =====
         self.tracked_objects = {}
         self.counted_ids = {}
         self.count_entering = {}
         self.count_exiting = {}
-        
-        # FPS tracking
+        self.current_in_roi = {}
         self.current_fps = 0.0
+        self.frame_count = 0
+        self.is_running = True
+
+        # --- Helper Methods ---
+    def _get_daily_json_path(self, dt=None):
+        """
+        Trả về path file JSON theo từng ngày và từng camera.
+        Ví dụ: logs/traffic_count/cam0_20251129.json
+        """
+        if dt is None:
+            dt = datetime.now()
+        date_str = dt.strftime("%Y%m%d")
+        return self.logs_dir / f"cam{self.video_index}_{date_str}.json"
+
+    def _init_daily_hourly_template(self, dt):
+        """
+        Khởi tạo list 24 dict, mỗi dict là 1 giờ trong ngày.
+        Ban đầu mọi count = 0, timestamp = đầu giờ (hh:00).
+        """
+        day_data = []
+        for h in range(24):
+            ts = datetime(dt.year, dt.month, dt.day, h, 0, 0).isoformat()
+            day_data.append({
+                "timestamp": ts,
+                "car": 0,
+                "motor": 0,
+                "bus": 0,
+                "truck": 0,
+                "total_vehicles": 0
+            })
+        return day_data
 
     def _is_inside_roi(self, cx, cy):
-        """Kiểm tra điểm có trong ROI polygon"""
-        result = cv2.pointPolygonTest(self.roi_pts, (float(cx), float(cy)), False)
-        return result >= 0
+        return cv2.pointPolygonTest(self.roi_pts, (float(cx), float(cy)), False) >= 0
+
+
+    def _update_set(self, data_dict, class_name, obj_id):
+        if class_name not in data_dict: data_dict[class_name] = set()
+        data_dict[class_name].add(obj_id)
 
     def _count_objects(self, boxes, classes, confs, ids, names):
-        """Logic đếm xe khi cross qua ROI boundary"""
         if ids is None:
+            self.current_in_roi = {}
             return
-
         current_frame_ids = set()
-
+        temp_current_in_roi = {}
         for i in range(len(boxes)):
-            if confs[i] < self.count_conf:
-                continue
-
+            if confs[i] < self.count_conf: continue
             x1, y1, x2, y2 = boxes[i]
-            cx = (x1 + x2) / 2
-            cy = (y1 + y2) / 2
-
+            cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
             obj_id = int(ids[i])
             class_name = names[int(classes[i])]
-
             is_inside_now = self._is_inside_roi(cx, cy)
             
-            # Bỏ qua xe ngoài ROI hoàn toàn
-            if obj_id not in self.tracked_objects and not is_inside_now:
-                continue
+            if is_inside_now: temp_current_in_roi[class_name] = temp_current_in_roi.get(class_name, 0) + 1
+            if obj_id not in self.tracked_objects and not is_inside_now: continue
             
             current_frame_ids.add(obj_id)
-
-            # Lần đầu thấy object
             if obj_id not in self.tracked_objects:
-                self.tracked_objects[obj_id] = {
-                    'prev_cx': cx,
-                    'prev_cy': cy,
-                    'was_inside': is_inside_now,
-                    'class': class_name
-                }
-                
+                self.tracked_objects[obj_id] = {'was_inside': is_inside_now, 'class': class_name}
                 if is_inside_now:
-                    if class_name not in self.counted_ids:
-                        self.counted_ids[class_name] = set()
-                        self.count_entering[class_name] = set()
-                    
-                    if obj_id not in self.counted_ids[class_name]:
-                        self.counted_ids[class_name].add(obj_id)
-                        self.count_entering[class_name].add(obj_id)
-                        print(f"✅ [{class_name}] ID={obj_id} ENTERED ROI")
-                
+                    self._update_set(self.counted_ids, class_name, obj_id)
+                    self._update_set(self.count_entering, class_name, obj_id)
                 continue
 
             prev_state = self.tracked_objects[obj_id]
-            was_inside_before = prev_state['was_inside']
-
-            # Xe đi từ ngoài vào trong
-            if not was_inside_before and is_inside_now:
-                if class_name not in self.counted_ids:
-                    self.counted_ids[class_name] = set()
-                    self.count_entering[class_name] = set()
-                
-                if obj_id not in self.counted_ids[class_name]:
-                    self.counted_ids[class_name].add(obj_id)
-                    self.count_entering[class_name].add(obj_id)
-                    print(f"✅ [{class_name}] ID={obj_id} ENTERED ROI")
-
-            # Xe đi từ trong ra ngoài
-            elif was_inside_before and not is_inside_now:
-                if class_name not in self.count_exiting:
-                    self.count_exiting[class_name] = set()
-                
-                if obj_id not in self.count_exiting[class_name]:
-                    self.count_exiting[class_name].add(obj_id)
-                    print(f"⬅️ [{class_name}] ID={obj_id} EXITED ROI")
-
-            # Cập nhật state
-            self.tracked_objects[obj_id] = {
-                'prev_cx': cx,
-                'prev_cy': cy,
-                'was_inside': is_inside_now,
-                'class': class_name
-            }
-
-        # Cleanup
+            if not prev_state['was_inside'] and is_inside_now:
+                self._update_set(self.counted_ids, class_name, obj_id)
+                self._update_set(self.count_entering, class_name, obj_id)
+            elif prev_state['was_inside'] and not is_inside_now:
+                self._update_set(self.count_exiting, class_name, obj_id)
+            self.tracked_objects[obj_id]['was_inside'] = is_inside_now
+            self.tracked_objects[obj_id]['class'] = class_name
+        self.current_in_roi = temp_current_in_roi
         tracked_ids = set(self.tracked_objects.keys())
         lost_ids = tracked_ids - current_frame_ids
-        for lost_id in lost_ids:
-            del self.tracked_objects[lost_id]
+        for lost_id in lost_ids: del self.tracked_objects[lost_id]
 
-    def _save_json_record(self):
-        """Lưu bản ghi JSON theo format đơn giản"""
-        current_time = datetime.now()
-        
-        # Tạo counts dict
-        counts = {}
-        for class_name in self.counted_ids.keys():
-            counts[class_name] = len(self.counted_ids[class_name])
-        
-        # Tính tổng
-        total = sum(counts.values())
-        
-        # Tạo record theo format yêu cầu
-        record = {
-            "timestamp": current_time.timestamp(),
-            "fps": round(self.current_fps, 1),
-            "counts": counts,
-            "total": total
-        }
-        
-        # Lưu vào file (append mode, mỗi dòng 1 JSON)
+    def _update_shared_data(self):
+        if self.shared_dict is None: return
         try:
-            with open(self.json_file, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(record) + '\n')
-            
-            print(f"💾 [{current_time.strftime('%H:%M:%S')}] Saved: total={total}, fps={record['fps']}")
-            
-            # In chi tiết
-            if counts:
-                details = ", ".join([f"{k}:{v}" for k, v in counts.items()])
-                print(f"   📊 {details}")
-            else:
-                print("   📊 No vehicles counted yet")
-                
-        except Exception as e:
-            print(f"❌ Error saving JSON: {e}")
-        
-        self.last_save_time = current_time
+            all_classes = set(self.counted_ids.keys()) | set(self.current_in_roi.keys())
+            total_entered = sum(len(self.counted_ids.get(cls, set())) for cls in all_classes)
+            total_current = sum(self.current_in_roi.get(cls, 0) for cls in all_classes)
+            key = f"camera_{self.video_index}"
+            self.shared_dict[key] = {
+                'fps': round(self.current_fps, 1),
+                'total_entered': total_entered,
+                'total_current': total_current,
+                'timestamp': datetime.now().timestamp(),
+                'details': {cls: {'entered': len(self.counted_ids.get(cls, set())), 'current': self.current_in_roi.get(cls, 0)} for cls in all_classes}
+            }
+        except Exception: pass
 
     def _check_and_save(self):
-        """Kiểm tra và lưu nếu đã đủ thời gian"""
+        """
+        Auto-save thống kê ra 1 file JSON (ghi đè mỗi lần).
+
+        Trường trong JSON:
+            timestamp      : thời điểm lưu (ISO string)
+            car            : tổng số xe car đã đi qua ROI
+            motor          : tổng số xe máy/motor/bike đã đi qua ROI
+            bus            : tổng số xe bus đã đi qua ROI
+            truck          : tổng số xe truck đã đi qua ROI
+            total_vehicles : tổng tất cả loại xe ở trên
+        """
         if not self.auto_save:
             return
-        
-        current_time = datetime.now()
-        elapsed = (current_time - self.last_save_time).total_seconds()
-        
-        if elapsed >= self.save_interval_seconds:
-            self._save_json_record()
+
+        now = datetime.now()
+
+        # Chỉ lưu khi đủ interval (mặc định 60s)
+        if (now - self.last_save_time).total_seconds() < self.save_interval_seconds:
+            return
+
+        # Nếu sang ngày mới -> reset thống kê & cập nhật current_day
+        if now.date() != self.current_day:
+            self.current_day = now.date()
+            self.counted_ids.clear()
+            self.count_entering.clear()
+            self.count_exiting.clear()
+            self.tracked_objects.clear()
+            self.current_in_roi.clear()
+
+        # ----- Lấy số lượng theo từng class -----
+        car_count = len(self.counted_ids.get("car", set()))
+
+        motor_ids = set()
+        motor_ids |= self.counted_ids.get("motor", set())
+        motor_ids |= self.counted_ids.get("bike", set())
+        motor_ids |= self.counted_ids.get("motorbike", set())
+        motor_count = len(motor_ids)
+
+        bus_count = len(self.counted_ids.get("bus", set()))
+        truck_count = len(self.counted_ids.get("truck", set()))
+
+        total_vehicles = car_count + motor_count + bus_count + truck_count
+
+        # Snapshot cho giờ hiện tại (0..23)
+        hour_index = now.hour
+        hour_data = {
+            "timestamp": now.isoformat(),
+            "car": int(car_count),
+            "motor": int(motor_count),
+            "bus": int(bus_count),
+            "truck": int(truck_count),
+            "total_vehicles": int(total_vehicles),
+        }
+
+        json_path = self._get_daily_json_path(now)
+
+        try:
+            # Đọc dữ liệu cũ nếu file đã tồn tại
+            if json_path.exists():
+                with open(json_path, "r", encoding="utf-8") as f:
+                    day_data = json.load(f)
+                # Nếu file hư hoặc không đủ 24 phần tử thì khởi tạo lại
+                if not isinstance(day_data, list) or len(day_data) != 24:
+                    day_data = self._init_daily_hourly_template(now)
+            else:
+                # Chưa có file -> tạo mới template 24 giờ
+                day_data = self._init_daily_hourly_template(now)
+
+            # Cập nhật dict cho khung giờ hiện tại
+            day_data[hour_index] = hour_data
+
+            # Ghi đè lại file
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(day_data, f, ensure_ascii=False, indent=2)
+
+            # Cập nhật mốc thời gian đã lưu
+            self.last_save_time = now
+
+            # Debug (nếu cần)
+            # print(f"[Cam {self.video_index}] Saved hour={hour_index} to {json_path}")
+        except Exception as e:
+            print(f"[Cam {self.video_index}] ❌ Error saving daily JSON stats: {e}")
+
+
 
     def process_single_frame(self, frame):
-        """Xử lý 1 frame video"""
-        
-        results = self.model.track(
-            frame,
-            persist=True,
-            device=self.device,
-            conf=0.25,
-            iou=0.5,
-            verbose=False,
-        )
-
-        r = results[0]
-        plotted = r.plot()
-
-        # Vẽ vùng ROI
-        cv2.polylines(plotted, [self.roi_pts], isClosed=True,
-                      color=(0, 255, 255), thickness=3)
-        
-        roi_center = self.roi_pts.mean(axis=0)[0].astype(int)
-        cv2.putText(plotted, "ROI ZONE", 
-                    tuple(roi_center), 
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8, (0, 255, 255), 2)
-
-        # Lấy detections và count
-        if r.boxes is not None and len(r.boxes) > 0:
-            boxes = r.boxes.xyxy.cpu().numpy()
-            classes = r.boxes.cls.cpu().numpy().astype(int)
-            confs = r.boxes.conf.cpu().numpy()
-            ids = (
-                r.boxes.id.cpu().numpy().astype(int)
-                if r.boxes.id is not None else None
-            )
-            self._count_objects(boxes, classes, confs, ids, r.names)
-
-        # ===== HIỂN THỊ KẾT QUẢ ĐẾM =====
-        y_offset = 30
-        line_height = 30
-        x_pos = 10
-
-        cv2.putText(plotted, "=== VEHICLE COUNT ===",
-                    (x_pos, y_offset), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, (255, 255, 0), 2)
-        y_offset += line_height
-
-        total_count = 0
-        if self.counted_ids:
-            for cls_name in sorted(self.counted_ids.keys()):
-                count = len(self.counted_ids[cls_name])
-                total_count += count
-                
-                text = f"{cls_name}: {count}"
-                cv2.putText(plotted, text,
-                            (x_pos, y_offset),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.6, (0, 255, 0), 2)
-                y_offset += line_height
-            
-            # Hiển thị tổng
-            cv2.putText(plotted, f"TOTAL: {total_count}",
-                        (x_pos, y_offset),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7, (0, 255, 255), 2)
+        # Logic Skip Frame: Chỉ chạy AI khi chia hết cho skip_frames
+        if self.frame_count % self.skip_frames == 0:
+            results = self.model.track(frame, persist=True, device=self.device, conf=0.25, iou=0.5, verbose=False)
+            r = results[0]
+            self.last_result = r
+            if r.boxes is not None and len(r.boxes) > 0:
+                boxes = r.boxes.xyxy.cpu().numpy()
+                classes = r.boxes.cls.cpu().numpy().astype(int)
+                confs = r.boxes.conf.cpu().numpy()
+                ids = r.boxes.id.cpu().numpy().astype(int) if r.boxes.id is not None else None
+                self._count_objects(boxes, classes, confs, ids, r.names)
+            else: self.current_in_roi = {}
+            plotted = r.plot()
         else:
-            cv2.putText(plotted, "No vehicles counted yet",
-                        (x_pos, y_offset),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6, (0, 165, 255), 2)
-
-        # Hiển thị countdown đến lần save tiếp theo
-        if self.auto_save:
-            time_since_save = (datetime.now() - self.last_save_time).total_seconds()
-            time_to_next = int(self.save_interval_seconds - time_since_save)
-            
-            cv2.putText(plotted, f"Next save: {time_to_next}s",
-                       (plotted.shape[1] - 180, 20),
-                       cv2.FONT_HERSHEY_SIMPLEX,
-                       0.5, (255, 255, 0), 2)
-
+            # Dùng kết quả cũ vẽ đè lên (Hold & Draw)
+            if self.last_result is not None: plotted = self.last_result.plot(img=frame)
+            else: plotted = frame
+        
+        cv2.polylines(plotted, [self.roi_pts], isClosed=True, color=(0, 255, 255), thickness=2)
         return plotted
 
-    def process_video(self):
-        """Xử lý video stream"""
-        
-        stream_url = get_stream_url(self.path_video)
-        if not stream_url:
-            print("❌ Không thể mở livestream.")
-            return
-
-        cam = cv2.VideoCapture(stream_url)
-        if not cam.isOpened():
-            print("❌ Không mở được video.")
-            return
-
-        print("🎬 Bắt đầu đếm xe trong ROI...")
-        print("🔴 Press 'q' to quit, 's' to save now")
-
-        frame_count = 0
-        
+    def get_stream_url(self, youtube_url):
+        # Lấy stream 360p siêu nhẹ
+        ydl_opts = {
+            "quiet": True, "no_warnings": True,
+            "format": "best[height<=360]", 
+            "nocheckcertificate": True,
+        }
         try:
-            while True:
-                t0 = datetime.now()
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+                if info and "url" in info: return info["url"]
+        except Exception: pass
+        return youtube_url
 
-                ok, frame = cam.read()
-                if not ok:
-                    print("⚠️ Không đọc được frame")
-                    break
+    def process_video(self):
+        print(f"[Camera {self.video_index}] 🎬 START MONITORING (360p, Skip {self.skip_frames})")
+        while self.is_running:
+            try:
+                stream_url = self.get_stream_url(self.path_video)
+                cam = cv2.VideoCapture(stream_url)
+                # 🔥 CHỈ GIỮ 1 FRAME BUFFER
+                cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-                frame = cv2.resize(frame, (640, 360))
-                plotted = self.process_single_frame(frame)
+                if not cam.isOpened():
+                    print(f"[Cam {self.video_index}] Retry in 3s...")
+                    time.sleep(3)
+                    continue
+                
+                print(f"[Cam {self.video_index}] ✅ Connected!")
 
-                # Kiểm tra và lưu JSON tự động
-                self._check_and_save()
+                while self.is_running:
+                    t0 = datetime.now()
+                    ok, frame = cam.read()
+                    if not ok: break 
 
-                # Tính FPS
-                fps = 1 / ((datetime.now() - t0).total_seconds() + 1e-6)
-                self.current_fps = fps
+                    # Resize nhỏ
+                    frame = cv2.resize(frame, (self.process_width, self.process_height))
+                    plotted = self.process_single_frame(frame)
 
-                cv2.putText(plotted, f"FPS: {int(fps)}",
-                            (plotted.shape[1] - 100, 50), 
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.6, (0, 255, 100), 2)
+                    # Gửi ảnh API (Quality 30)
+                    if self.frame_dict is not None:
+                        try:
+                            _, buffer = cv2.imencode('.jpg', plotted, [cv2.IMWRITE_JPEG_QUALITY, 30])
+                            self.frame_dict[f"camera_{self.video_index}"] = buffer.tobytes()
+                        except Exception: pass
 
-                frame_count += 1
+                    self.frame_count += 1
+                    self._update_shared_data()
+                    self._check_and_save()
 
-                if self.show:
-                    cv2.imshow("Traffic Count - Simple JSON Output", plotted)
-                    key = cv2.waitKey(1) & 0xFF
-                    
-                    if key == ord("q"):
-                        break
-                    elif key == ord("s"):
-                        print("💾 Manual save triggered...")
-                        self._save_json_record()
+                    delta = (datetime.now() - t0).total_seconds()
+                    self.current_fps = 1 / (delta + 1e-6)
 
-        finally:
-            # Lưu lần cuối trước khi thoát
-            if self.auto_save:
-                print("\n💾 Saving final record before exit...")
-                self._save_json_record()
-            
-            cam.release()
-            if self.show:
-                cv2.destroyAllWindows()
-            
-            self._print_summary()
-
-    def _print_summary(self):
-        """In báo cáo tổng kết"""
-        print("\n" + "="*60)
-        print("📊 TRAFFIC COUNT SUMMARY")
-        print("="*60)
-        
-        if not self.counted_ids:
-            print("❌ No vehicles counted")
-            return
-        
-        total_vehicles = sum(len(ids) for ids in self.counted_ids.values())
-        print(f"Total Vehicles: {total_vehicles}")
-        print("-"*60)
-        
-        for cls_name in sorted(self.counted_ids.keys()):
-            count = len(self.counted_ids[cls_name])
-            print(f"{cls_name:15s}: {count:3d}")
-        
-        # Session info
-        elapsed = datetime.now() - self.session_start_time
-        hours, remainder = divmod(elapsed.total_seconds(), 3600)
-        minutes, seconds = divmod(remainder, 60)
-        
-        print(f"\nSession duration: {int(hours)}h {int(minutes)}m {int(seconds)}s")
-        print(f"📁 JSON file: {self.json_file}")
-        print("="*60 + "\n")
-
-
-# ============================================================
-# RUN TRỰC TIẾP
-# ============================================================
-if __name__ == "__main__":
+                    if self.show:
+                        cv2.imshow(f"Cam {self.video_index}", plotted)
+                        if cv2.waitKey(1) & 0xFF == ord('q'): 
+                            self.is_running = False
+                            break
+                cam.release()
+            except Exception as e:
+                print(f"[Cam {self.video_index}] Error: {e}")
+                time.sleep(2)
+        if self.show: cv2.destroyAllWindows()
+def main():
+    """
+    Chạy thử 1 camera để kiểm tra hàm _check_and_save
+    - Đếm xe từ video index 0 (PATH_VIDEOS[0])
+    - Tự động lưu JSON sau mỗi save_interval_seconds
+    """
+    # Tùy ý chỉnh save_interval_seconds cho dễ thấy file cập nhật
     analyzer = AnalyzeOnRoadBase(
         video_index=0,
-        show=True,
+        shared_dict=None,
+        result_queue=None,
+        show=True,               # hiện cửa sổ video, nếu không cần thì để False
+        frame_dict=None,
         auto_save=True,
-        save_interval_seconds=60  # Lưu mỗi 60 giây (1 phút)
+        save_interval_seconds=5  # 5 giây ghi JSON 1 lần cho dễ test
     )
-    analyzer.process_video()
+
+    try:
+        analyzer.process_video()
+    except KeyboardInterrupt:
+        print("\n[MAIN] Stop by user (Ctrl+C)")
+        analyzer.is_running = False
+
+
+if __name__ == "__main__":
+    main()

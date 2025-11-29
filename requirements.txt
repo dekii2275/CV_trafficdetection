@@ -17,6 +17,7 @@ langchain
 langchain_google_genai
 langgraph
 asyncpg
+aiosqlite
 chromadb 
 sentence-transformers 
 google-generativeai 
@@ -27,3 +28,4 @@ google-auth
 google-auth-oauthlib 
 google-auth-httplib2
 torch
+psycopg2-binary

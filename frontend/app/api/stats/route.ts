@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 const MOCK_BREAKDOWN = {
     car: 1820,
     truck: 460,
-    bike: 320,
+    motor: 320,
     bus: 140,
 };
 
