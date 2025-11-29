@@ -1,141 +1,177 @@
-'use client';
+"use client";
 
-import { useEffect, useState, useRef } from 'react';
-import Card from '../ui/Card';
+import { useEffect, useState, useRef } from "react";
+import Card from "../ui/Card";
+import StatCard from "./StatCard";
+import { formatCompactNumber, formatNumber } from "../../lib/utils";
 
-interface VehicleStats {
-  total_today: number;
-  current_speed: number;
-  total_change_percent: number;
-  speed_change_percent: number;
-  car_count: number;
-  truck_count: number;
-  bike_count: number;
-  bus_count: number;
-  timestamp?: string;
-}
+type RealtimeStatsProps = {
+  cameraId: number;
+  cameraLabel?: string;
+};
 
-export default function RealtimeDashboard() {
-  const [stats, setStats] = useState<VehicleStats>({
-    total_today: 0,
-    current_speed: 0,
-    total_change_percent: 0,
-    speed_change_percent: 0,
-    car_count: 0,
-    truck_count: 0,
-    bike_count: 0,
-    bus_count: 0,
+// Cấu trúc dữ liệu nhận từ WebSocket Backend
+type WebSocketMessage = {
+  fps: number;
+  total_entered: number;
+  total_current: number;
+  timestamp: number;
+  details: {
+    car?: { entered: number; current: number };
+    motorcycle?: { entered: number; current: number };
+    motorbike?: { entered: number; current: number };
+    bus?: { entered: number; current: number };
+    truck?: { entered: number; current: number };
+  };
+};
+
+export default function RealtimeStats({
+  cameraId,
+  cameraLabel,
+}: RealtimeStatsProps) {
+  // State lưu trữ thống kê
+  const [stats, setStats] = useState({
+    car: 0,
+    motor: 0,
+    bus: 0,
+    truck: 0,
+    total: 0,
+    fps: 0,
   });
 
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const connectWebSocket = () => {
-      // ✅ KẾT NỐI TỚI ENDPOINT MỚI
-      const ws = new WebSocket('ws://localhost:8000/api/v1/ws/stats');
-      wsRef.current = ws;
+    // 1. Xác định URL WebSocket
+    // Nếu chạy local: ws://localhost:8000/api/v1/ws/info/0
+    const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "localhost:8000";
+    // Xử lý logic http/https để chuyển sang ws/wss
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const cleanBase = API_BASE.replace("http://", "").replace("https://", "");
+    const wsUrl = `${wsProtocol}//${cleanBase}/api/v1/ws/info/${cameraId}`;
 
-      ws.onopen = () => {
-        console.log('✅ Dashboard WebSocket connected');
-        setIsConnected(true);
-      };
+    const connect = () => {
+      try {
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
 
-      ws.onmessage = (event) => {
-        try {
-          const data: VehicleStats = JSON.parse(event.data);
-          setStats(data);
-        } catch (err) {
-          console.error('Failed to parse stats:', err);
-        }
-      };
+        ws.onopen = () => {
+          console.log(`✅ Connected WS Info Cam ${cameraId}`);
+          setIsConnected(true);
+        };
 
-      ws.onerror = (error) => {
-        console.error('❌ WebSocket error:', error);
-      };
+        ws.onmessage = (event) => {
+          try {
+            const data: WebSocketMessage = JSON.parse(event.data);
+            
+            // Mapping dữ liệu từ Backend sang State Frontend
+            const d = data.details || {};
+            
+            // Cộng dồn xe máy (motorcycle + motorbike)
+            const bikeCount = (d.motorcycle?.entered || 0) + (d.motorbike?.entered || 0) + (d.motor?.entered || 0);
 
-      ws.onclose = (event) => {
-        console.log('🔌 WebSocket disconnected');
-        setIsConnected(false);
-        
-        // Auto reconnect
-        if (event.code !== 1000) {
-          setTimeout(connectWebSocket, 3000);
-        }
-      };
+            setStats({
+              total: data.total_entered || 0,
+              car: d.car?.entered || 0,
+              motor: bikeCount,
+              bus: d.bus?.entered || 0,
+              truck: d.truck?.entered || 0,
+              fps: data.fps || 0,
+            });
+          } catch (e) {
+            console.error("Lỗi parse data:", e);
+          }
+        };
+
+        ws.onclose = () => {
+          setIsConnected(false);
+          // Tự động kết nối lại sau 3 giây nếu bị ngắt
+          setTimeout(connect, 3000);
+        };
+
+        ws.onerror = (err) => {
+          console.error("WS Error:", err);
+          ws.close();
+        };
+      } catch (err) {
+        console.error("Connection failed:", err);
+      }
     };
 
-    connectWebSocket();
+    connect();
 
+    // Cleanup khi component bị hủy
     return () => {
-      wsRef.current?.close(1000);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
     };
-  }, []);
+  }, [cameraId]);
 
-  const formatNumber = (num: number) => num.toLocaleString('vi-VN');
-  const formatCompact = (num: number) => num >= 1000 ? `${(num / 1000).toFixed(1)}K` : num.toString();
+  // Cấu hình hiển thị Cards
+  const summaryCards = [
+    {
+      label: "Tổng lượt hôm nay",
+      value: formatNumber(stats.total),
+      helperText: isConnected ? `FPS: ${stats.fps.toFixed(1)}` : "Mất kết nối",
+      trend: undefined,
+    },
+  ];
+
+  const breakdownCards = [
+    {
+      label: "CAR",
+      value: formatCompactNumber(stats.car),
+      helperText: "Tổng lượt vào",
+    },
+    {
+      label: "TRUCK",
+      value: formatCompactNumber(stats.truck),
+      helperText: "Tổng lượt vào",
+    },
+    {
+      label: "BIKE",
+      value: formatCompactNumber(stats.motor),
+      helperText: "Tổng lượt vào",
+    },
+    {
+      label: "BUS",
+      value: formatCompactNumber(stats.bus),
+      helperText: "Tổng lượt vào",
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <Card>
+      <div className="mb-6 flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">Realtime Vehicle Count</h2>
-          <p className="text-sm text-slate-400">Chi tập trung vào thống kê phương tiện</p>
+          <h2 className="text-lg font-semibold">
+            Realtime Vehicle Count • {cameraLabel ?? `Camera ${cameraId}`}
+          </h2>
+          <p className="text-sm text-slate-400">
+            Dữ liệu trực tiếp từ AI Core (WebSocket)
+          </p>
         </div>
-        <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm ${
-          isConnected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-        }`}>
-          <div className="w-2 h-2 rounded-full bg-current animate-pulse" />
-          {isConnected ? 'LIVE' : 'RECONNECTING...'}
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"}`}></span>
+          <span className={`text-xs ${isConnected ? "text-emerald-400" : "text-red-400"}`}>
+            {isConnected ? "Live" : "Offline"}
+          </span>
         </div>
       </div>
 
-      {/* Main Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
-          <p className="text-xs uppercase tracking-wider text-slate-400 mb-2">TỔNG LƯỢT HÔM NAY</p>
-          <div className="flex items-baseline gap-3">
-            <h2 className="text-5xl font-bold text-white">{formatNumber(stats.total_today)}</h2>
-            <span className={`text-lg font-semibold ${
-              stats.total_change_percent >= 0 ? 'text-green-400' : 'text-red-400'
-            }`}>
-              {stats.total_change_percent >= 0 ? '+' : ''}{stats.total_change_percent.toFixed(1)}%
-            </span>
-          </div>
-          <p className="text-sm text-slate-500 mt-2">Tính từ 00:00</p>
-        </Card>
-
-        <Card>
-          <p className="text-xs uppercase tracking-wider text-slate-400 mb-2">TỐC ĐỘ ĐẾM HIỆN TẠI</p>
-          <div className="flex items-baseline gap-2">
-            <h2 className="text-5xl font-bold text-white">{stats.current_speed}</h2>
-            <span className="text-2xl text-slate-400">/min</span>
-            <span className={`text-lg font-semibold ml-2 ${
-              stats.speed_change_percent >= 0 ? 'text-green-400' : 'text-red-400'
-            }`}>
-              {stats.speed_change_percent >= 0 ? '+' : ''}{stats.speed_change_percent.toFixed(1)}%
-            </span>
-          </div>
-          <p className="text-sm text-slate-500 mt-2">Trung bình 5 phút</p>
-        </Card>
-      </div>
-
-      {/* Vehicle Breakdown */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'CAR', value: stats.car_count },
-          { label: 'TRUCK', value: stats.truck_count },
-          { label: 'BIKE', value: stats.bike_count },
-          { label: 'BUS', value: stats.bus_count },
-        ].map((item) => (
-          <Card key={item.label}>
-            <p className="text-xs uppercase tracking-wider text-slate-400 mb-1">LƯỢT {item.label}</p>
-            <h3 className="text-4xl font-bold text-white">{formatCompact(item.value)}</h3>
-            <p className="text-xs text-slate-500 mt-1">Trong 1 giờ</p>
-          </Card>
+      <div className="grid gap-6 md:grid-cols-2">
+        {summaryCards.map((stat) => (
+          <StatCard key={stat.label} {...stat} />
         ))}
       </div>
-    </div>
+
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {breakdownCards.map((stat) => (
+          <StatCard key={stat.label} {...stat} />
+        ))}
+      </div>
+    </Card>
   );
 }

@@ -13,7 +13,7 @@ from app.api import state
 
 # Import Database Modules
 from app.db.base import SessionLocal  
-from app.models.traffic_log import TrafficLog 
+from app.models.traffic_logs import TrafficLog 
 
 router = APIRouter()
 
@@ -64,7 +64,7 @@ async def save_stats_to_db_worker():
                             fps=data.get('fps', 0),
                             # Mapping chi tiết
                             count_car=details.get('car', {}).get('entered', 0),
-                            count_motor=details.get('motorcycle', {}).get('entered', 0) + details.get('motorbike', {}).get('entered', 0),
+                            count_motor=details.get('motorcycle', {}).get('entered', 0) + details.get('motorbike', {}).get('entered', 0) + details.get('motor', {}).get('entered', 0),
                             count_bus=details.get('bus', {}).get('entered', 0),
                             count_truck=details.get('truck', {}).get('entered', 0),
                             timestamp=datetime.now()

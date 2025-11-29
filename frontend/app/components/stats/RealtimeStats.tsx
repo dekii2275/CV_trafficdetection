@@ -1,114 +1,145 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Card from "../ui/Card";
-import StatCard from "./StatCard";
-import { formatCompactNumber, formatNumber } from "../../lib/utils";
-
-type DashboardCurrentStats = {
-  car: number;
-  motor: number;
-  bus: number;
-  truck: number;
-  total_vehicles: number;
-  timestamp?: string;
-};
-
-type DashboardResponse = {
-  camera_id: number;
-  date: string;
-  current_hour: number;
-  current_stats: DashboardCurrentStats;
-  daily_total: number;
-};
+import { useEffect, useState, useRef } from "react";
+import Card from "../ui/Card"; // Đảm bảo Card.tsx tồn tại ở ../ui/Card
+import StatCard from "./StatCard"; // Import file vừa tạo ở trên
+import { formatCompactNumber, formatNumber } from "../../lib/utils"; // Hàm format số
 
 type RealtimeStatsProps = {
   cameraId: number;
   cameraLabel?: string;
 };
 
+// Kiểu dữ liệu nhận từ WebSocket Backend
+type WebSocketMessage = {
+  fps: number;
+  total_entered: number;
+  total_current: number;
+  timestamp: number;
+  details: {
+    car?: { entered: number; current: number };
+    motorcycle?: { entered: number; current: number };
+    motorbike?: { entered: number; current: number };
+    bus?: { entered: number; current: number };
+    truck?: { entered: number; current: number };
+  };
+};
+
 export default function RealtimeStats({
   cameraId,
   cameraLabel,
 }: RealtimeStatsProps) {
-  const [stats, setStats] = useState<DashboardResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // State lưu trữ thống kê
+  const [stats, setStats] = useState({
+    car: 0,
+    motor: 0,
+    bus: 0,
+    truck: 0,
+    total: 0,
+    fps: 0,
+  });
+
+  const [isConnected, setIsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    const API_BASE =
-      process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    // 1. Xác định URL WebSocket
+    const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "localhost:8000";
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const cleanBase = API_BASE.replace("http://", "").replace("https://", "");
+    const wsUrl = `${wsProtocol}//${cleanBase}/api/v1/ws/info/${cameraId}`;
 
-    async function fetchStats() {
+    const connect = () => {
       try {
-        const res = await fetch(`${API_BASE}/api/v1/dashboard/${cameraId}`, {
-          cache: "no-store",
-        });
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
 
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
+        ws.onopen = () => {
+          console.log(`✅ Connected WS Info Cam ${cameraId}`);
+          setIsConnected(true);
+        };
 
-        const data = (await res.json()) as DashboardResponse;
-        if (!cancelled) {
-          setStats(data);
-          setError(null);
-        }
+        ws.onmessage = (event) => {
+          try {
+            const data: WebSocketMessage = JSON.parse(event.data);
+            
+            // Mapping dữ liệu từ Backend sang State Frontend
+            const d = data.details || {};
+            
+            // Cộng dồn xe máy (motorcycle + motorbike)
+            const bikeCount = 
+              (d.motorcycle?.entered || 0) + 
+              (d.motorbike?.entered || 0) + 
+              (d.motor?.entered || 0);
+
+            setStats({
+              total: data.total_entered || 0,
+              car: d.car?.entered || 0,
+              motor: bikeCount,
+              bus: d.bus?.entered || 0,
+              truck: d.truck?.entered || 0,
+              fps: data.fps || 0,
+            });
+          } catch (e) {
+            console.error("Lỗi parse data:", e);
+          }
+        };
+
+        ws.onclose = () => {
+          setIsConnected(false);
+          // Tự động kết nối lại sau 3 giây nếu bị ngắt
+          setTimeout(connect, 3000);
+        };
+
+        ws.onerror = (err) => {
+          console.error("WS Error:", err);
+          ws.close();
+        };
       } catch (err) {
-        if (!cancelled) {
-          console.error("Fetch dashboard error:", err);
-          setError("Không lấy được dữ liệu thống kê");
-        }
+        console.error("Connection failed:", err);
       }
-    }
+    };
 
-    fetchStats();
-    const interval = setInterval(fetchStats, 5000); // 5s
+    connect();
 
+    // Cleanup khi component bị hủy
     return () => {
-      cancelled = true;
-      clearInterval(interval);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
     };
   }, [cameraId]);
 
-  const total = stats?.daily_total ?? 0;
-
-  const car = stats?.current_stats?.car ?? 0;
-  const truck = stats?.current_stats?.truck ?? 0;
-  const bike = stats?.current_stats?.motor ?? 0;
-  const bus = stats?.current_stats?.bus ?? 0;
-
-  const lastUpdated = stats?.current_stats?.timestamp;
-
+  // Cấu hình hiển thị Cards
   const summaryCards = [
     {
       label: "Tổng lượt hôm nay",
-      value: formatNumber(total),
-      helperText: "Tính từ 00:00",
-      trend: undefined as number | undefined,
+      value: formatNumber(stats.total),
+      helperText: isConnected ? `FPS: ${stats.fps.toFixed(1)}` : "Mất kết nối",
+      trend: undefined,
     },
   ];
 
   const breakdownCards = [
     {
-      label: "CAR (giờ hiện tại)",
-      value: formatCompactNumber(car),
-      helperText: "Trong khung giờ hiện tại",
+      label: "CAR",
+      value: formatCompactNumber(stats.car),
+      helperText: "Tổng lượt vào",
     },
     {
-      label: "TRUCK (giờ hiện tại)",
-      value: formatCompactNumber(truck),
-      helperText: "Trong khung giờ hiện tại",
+      label: "TRUCK",
+      value: formatCompactNumber(stats.truck),
+      helperText: "Tổng lượt vào",
     },
     {
-      label: "BIKE (giờ hiện tại)",
-      value: formatCompactNumber(bike),
-      helperText: "Trong khung giờ hiện tại",
+      label: "BIKE",
+      value: formatCompactNumber(stats.motor),
+      helperText: "Tổng lượt vào",
     },
     {
-      label: "BUS (giờ hiện tại)",
-      value: formatCompactNumber(bus),
-      helperText: "Trong khung giờ hiện tại",
+      label: "BUS",
+      value: formatCompactNumber(stats.bus),
+      helperText: "Tổng lượt vào",
     },
   ];
 
@@ -120,23 +151,15 @@ export default function RealtimeStats({
             Realtime Vehicle Count • {cameraLabel ?? `Camera ${cameraId}`}
           </h2>
           <p className="text-sm text-slate-400">
-            Chỉ tập trung vào thống kê phương tiện
+            Dữ liệu trực tiếp từ AI Core (WebSocket)
           </p>
-          {lastUpdated && (
-            <p className="mt-1 text-xs text-slate-500">
-              Cập nhật lúc:{" "}
-              {new Date(lastUpdated).toLocaleTimeString("vi-VN")}
-            </p>
-          )}
-          {error && (
-            <p className="mt-1 text-xs text-red-400">
-              {error}
-            </p>
-          )}
         </div>
-        <span className="text-xs text-emerald-400">
-          {stats ? "Đang kết nối..." : "Đang khởi tạo..."}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"}`}></span>
+          <span className={`text-xs ${isConnected ? "text-emerald-400" : "text-red-400"}`}>
+            {isConnected ? "Live" : "Offline"}
+          </span>
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
