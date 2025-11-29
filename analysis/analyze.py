@@ -48,7 +48,7 @@ def load_recent_stats(stats_path, minutes=10, classes=None, tail_lines: int = No
         df['total'] = df[classes].sum(axis=1)
     return df.reset_index(drop=True)
 
-def aggregate_timeseries(df: pd.DataFrame, freq: str = "1T", classes: list = None) -> pd.DataFrame:
+def aggregate_timeseries(df: pd.DataFrame, freq: str = "1min", classes: list = None) -> pd.DataFrame:
     classes = classes or DEFAULT_CLASSES
     d = df.copy()
     if 'timestamp' in d.columns and pd.api.types.is_datetime64_any_dtype(d['timestamp']):
@@ -176,7 +176,7 @@ def to_json_records(df: pd.DataFrame) -> list:
 
 def analyze_pipeline_for_api(stats_path: str,
                              classes: list = None,
-                             agg_freq: str = "1T",
+                             agg_freq: str = "1min",
                              peak_window: int = 5,
                              peak_threshold: int = None,
                              minutes_window: int = 10,
@@ -198,7 +198,7 @@ def analyze_pipeline_for_api(stats_path: str,
 def analyze_pipeline_realtime(stats_path: str,
                               out_dir: str = "data/processed",
                               classes: list = None,
-                              agg_freq: str = "1T",
+                              agg_freq: str = "1min",
                               peak_window: int = 5,
                               peak_threshold: int = None,
                               minutes_window: int = 10):

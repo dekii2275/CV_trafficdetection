@@ -5,6 +5,7 @@ import time
 from multiprocessing import Manager, Process, Queue
 from datetime import datetime, timedelta
 from sqlalchemy import desc, func, cast, Date
+import pandas as pd
 
 # Import Config & Service
 from app.core.config import settings_metric_transport
@@ -26,80 +27,64 @@ class SystemState:
         self.processes = []     
         self.result_queue = None
 
-# Khởi tạo state toàn cục
 sys_state = SystemState()
 
-# ========================== BACKGROUND WORKER (LƯU DB) ==========================
+# ========================== BACKGROUND WORKER ==========================
 async def save_stats_to_db_worker():
-    """
-    Worker chạy ngầm: Cứ 10 giây chép dữ liệu từ RAM vào Database
-    """
     print("💾 Background Worker: Đã kích hoạt chế độ ghi log giao thông...")
     while True:
         try:
-            # Chu kỳ lưu: 10 giây/lần
             await asyncio.sleep(10)
-            
-            # Chỉ lưu nếu có dữ liệu
             if sys_state.info_dict:
                 db = SessionLocal()
                 try:
-                    # Copy ra dict thường để tránh lỗi xung đột khi AI Process đang ghi
                     current_snapshot = dict(sys_state.info_dict)
-                    
                     for key, data in current_snapshot.items():
-                        # key dạng "camera_0" -> lấy id = 0
                         try:
                             if "_" not in key: continue 
                             cam_id = int(key.split("_")[1])
-                        except:
-                            continue
+                        except: continue
 
                         details = data.get('details', {})
-                        
-                        # Tạo bản ghi mới vào Postgres
                         log = TrafficLog(
                             camera_id=cam_id,
                             total_vehicles=data.get('total_entered', 0),
                             fps=data.get('fps', 0),
-                            # Mapping chi tiết
                             count_car=details.get('car', {}).get('entered', 0),
-                            count_motor=details.get('motorcycle', {}).get('entered', 0) + details.get('motorbike', {}).get('entered', 0) + details.get('motor', {}).get('entered', 0),
+                            count_motor=(
+                                details.get('motorcycle', {}).get('entered', 0) + 
+                                details.get('motorbike', {}).get('entered', 0) + 
+                                details.get('motor', {}).get('entered', 0)
+                            ),
                             count_bus=details.get('bus', {}).get('entered', 0),
                             count_truck=details.get('truck', {}).get('entered', 0),
                             timestamp=datetime.now()
                         )
                         db.add(log)
-                    
                     db.commit()
                 except Exception as e:
                     print(f"❌ Lỗi worker lưu DB: {e}")
                     db.rollback() 
                 finally:
                     db.close()
-                    
         except Exception as e:
             print(f"❌ Lỗi vòng lặp Worker: {e}")
             await asyncio.sleep(5) 
 
-# ========================== LIFECYCLE EVENTS ==========================
-
+# ========================== LIFECYCLE ==========================
 @router.on_event("startup")
 async def startup_event():
-    # CHỐNG KHỞI ĐỘNG KÉP
     if sys_state.manager is not None:
-        print("⚠️ Hệ thống Traffic AI ĐÃ ĐANG CHẠY. Bỏ qua lệnh khởi động thừa.")
+        print("⚠️ Hệ thống Traffic AI ĐÃ ĐANG CHẠY.")
         return
 
     print("🚀 Đang khởi động hệ thống Traffic AI (Multiprocessing)...")
     try:
-        # 1. Setup Shared Memory
         sys_state.manager = Manager()
         sys_state.info_dict = sys_state.manager.dict()
         sys_state.frame_dict = sys_state.manager.dict()
         sys_state.result_queue = Queue()
 
-        # 2. Khởi chạy AI Processes
         num_cameras = 2 
         print(f"📹 Kích hoạt {num_cameras} cameras tối ưu...")
 
@@ -113,7 +98,6 @@ async def startup_event():
             print(f"✅ Camera {i} started (PID: {p.pid})")
             time.sleep(1)
             
-        # 3. Kích hoạt Worker lưu DB
         asyncio.create_task(save_stats_to_db_worker())
 
     except Exception as e:
@@ -129,21 +113,26 @@ async def shutdown_event():
     print("✅ Đã tắt toàn bộ processes.")
 
 
-# ========================== API ENDPOINTS (DATA & ANALYTICS) ==========================
+# ========================== API ENDPOINTS ==========================
 
 @router.get("/info/{camera_id}")
 async def get_info_road(camera_id: int):
     """Lấy thông tin realtime từ RAM"""
     if sys_state.info_dict is None:
         return JSONResponse({"error": "System not initialized"}, status_code=500)
-
     key = f"camera_{camera_id}"
     data = sys_state.info_dict.get(key)
-    if data:
-        return JSONResponse(dict(data))
-    else:
-        return JSONResponse({"status": "waiting", "message": f"No data for Camera {camera_id}"})
+    if data: return JSONResponse(dict(data))
+    return JSONResponse({"status": "waiting"}, status_code=404)
 
+# 🔥 FIX LỖI 404: Thêm lại API /stats nhưng dùng dữ liệu RAM
+@router.get("/stats/{camera_id}")
+async def get_stats_legacy(camera_id: int):
+    if sys_state.info_dict is None: return JSONResponse({}, status_code=404)
+    key = f"camera_{camera_id}"
+    data = sys_state.info_dict.get(key)
+    if data: return JSONResponse(dict(data))
+    return JSONResponse({"status": "waiting"}, status_code=404)
 
 @router.get("/frames/{camera_id}")
 async def get_frame_road(camera_id: int):
@@ -154,76 +143,89 @@ async def get_frame_road(camera_id: int):
         return Response(content=frame_bytes, media_type="image/jpeg")
     return JSONResponse({"error": "No frame"}, status_code=404)
 
+# ========================== ANALYTICS (DATABASE) ==========================
 
-@router.get("/analytics/trend")
-async def get_traffic_trend(camera_id: int = 0, minutes: int = 60):
-    """
-    API: Lấy dữ liệu lịch sử từ Database để vẽ biểu đồ
-    """
+# 🔥 FIX LỖI 404: Đổi tên /analytics/advanced thành /analyze
+@router.get("/analyze/{camera_id}")
+async def get_advanced_stats(camera_id: int):
+    """Phân tích nâng cao (Pandas + DB)"""
     db = SessionLocal()
     try:
-        time_threshold = datetime.now() - timedelta(minutes=minutes)
+        time_threshold = datetime.now() - timedelta(minutes=60)
+        query = db.query(
+            TrafficLog.timestamp, TrafficLog.total_vehicles,
+            TrafficLog.count_car, TrafficLog.count_motor,
+            TrafficLog.count_truck, TrafficLog.count_bus
+        ).filter(
+            TrafficLog.camera_id == camera_id,
+            TrafficLog.timestamp >= time_threshold
+        ).statement
         
-        logs = db.query(TrafficLog)\
-            .filter(TrafficLog.camera_id == camera_id)\
-            .filter(TrafficLog.timestamp >= time_threshold)\
-            .order_by(TrafficLog.timestamp.asc())\
-            .all()
-            
-        result = []
-        for log in logs:
-            result.append({
-                "time": log.timestamp.strftime("%H:%M"),
-                "count": log.total_vehicles,
-                "car": log.count_car,
-                "motor": log.count_motor
-            })
-            
-        return JSONResponse(result)
+        df = pd.read_sql(query, db.bind)
+        
+        if df.empty:
+            return JSONResponse({"message": "Chưa đủ dữ liệu"})
+
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df.set_index('timestamp', inplace=True)
+        df_1min = df.resample('1min').mean().fillna(0)
+        
+        if len(df_1min) < 2: return JSONResponse({"message": "Đang thu thập..."})
+
+        current_val = df_1min['total_vehicles'].iloc[-1]
+        mean_val = df_1min['total_vehicles'].mean()
+        std_val = df_1min['total_vehicles'].std()
+        
+        # Trend detection
+        recent_avg = df_1min['total_vehicles'].tail(5).mean()
+        prev_avg = df_1min['total_vehicles'].iloc[-10:-5].mean() if len(df_1min) > 10 else mean_val
+        trend_pct = ((recent_avg - prev_avg) / prev_avg * 100) if prev_avg > 0 else 0
+
+        stats = {
+            "current_flow": int(current_val),
+            "average_flow": round(float(mean_val), 1),
+            "peak_flow": int(df_1min['total_vehicles'].max()),
+            "volatility": f"{round(std_val, 1)}",
+            "status": "Cao điểm" if current_val > (mean_val + std_val) else "Bình thường",
+            "trend_percent": round(trend_pct, 1),
+            "composition": {
+                "car": int(df['count_car'].sum()),
+                "motor": int(df['count_motor'].sum()),
+                "truck": int(df['count_truck'].sum()),
+                "bus": int(df['count_bus'].sum())
+            }
+        }
+        return JSONResponse(stats)
     except Exception as e:
-        print(f"Lỗi Analytics API: {e}")
-        return JSONResponse([])
+        print(f"Lỗi Analyze: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
     finally:
         db.close()
 
-# ========================== CHART APIS (DB BASED - REFACTORED) ==========================
-
 @router.get("/charts/vehicle-distribution")
 async def get_vehicle_distribution():
-    """
-    Lấy tổng số xe hôm nay từ Database để vẽ biểu đồ tròn.
-    Logic: Lấy bản ghi mới nhất (max id) của từng camera trong ngày hôm nay.
-    """
+    """Pie Chart Data"""
     db = SessionLocal()
     try:
         today = datetime.now().date()
-        
-        # 1. Tìm ID mới nhất của mỗi camera trong ngày hôm nay
-        # SQL: SELECT max(id) FROM traffic_logs WHERE date(timestamp) = today GROUP BY camera_id
         subquery = db.query(func.max(TrafficLog.id))\
             .filter(cast(TrafficLog.timestamp, Date) == today)\
             .group_by(TrafficLog.camera_id)
-        
-        # 2. Lấy dữ liệu chi tiết của các ID đó
         latest_logs = db.query(TrafficLog).filter(TrafficLog.id.in_(subquery)).all()
         
-        # 3. Cộng dồn
         total_car = sum(log.count_car for log in latest_logs)
         total_motor = sum(log.count_motor for log in latest_logs)
         total_bus = sum(log.count_bus for log in latest_logs)
         total_truck = sum(log.count_truck for log in latest_logs)
         total_all = sum(log.total_vehicles for log in latest_logs)
         
-        # 4. Tính phần trăm
         def _pct(val, total): return float(val)/total if total > 0 else 0.0
 
         return JSONResponse({
             "date": today.isoformat(),
             "totals": {
-                "car": total_car,
-                "motor": total_motor,
-                "bus": total_bus,
-                "truck": total_truck,
+                "car": total_car, "motor": total_motor,
+                "bus": total_bus, "truck": total_truck,
                 "total_vehicles": total_all
             },
             "percentages": {
@@ -233,21 +235,60 @@ async def get_vehicle_distribution():
                 "truck": _pct(total_truck, total_all)
             }
         })
+    finally:
+        db.close()
+@router.get("/charts/time-series/{camera_id}")
+async def get_time_series_data(camera_id: int, hours: int = 12):
+    """Trả về dữ liệu time series để vẽ line chart (từ database)"""
+    db = SessionLocal()
+    try:
+        time_threshold = datetime.now() - timedelta(hours=hours)
+        query = db.query(
+            TrafficLog.timestamp,
+            TrafficLog.total_vehicles
+        ).filter(
+            TrafficLog.camera_id == camera_id,
+            TrafficLog.timestamp >= time_threshold
+        ).order_by(TrafficLog.timestamp).statement
+        
+        df = pd.read_sql(query, db.bind)
+        
+        if df.empty:
+            return JSONResponse({"message": "Chưa đủ dữ liệu"})
+        
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df.set_index('timestamp', inplace=True)
+        
+        # Resample theo giờ (hoặc phút tùy yêu cầu)
+        df_hourly = df.resample('1h').sum().fillna(0)
+        
+        # Format dữ liệu cho frontend
+        data_points = []
+        for idx, row in df_hourly.iterrows():
+            hour_label = idx.strftime('%H:00')
+            data_points.append({
+                "label": hour_label,
+                "value": int(row['total_vehicles'])
+            })
+        
+        return JSONResponse({
+            "camera_id": camera_id,
+            "points": data_points,
+            "period_hours": hours
+        })
     except Exception as e:
-        print(f"Lỗi Chart Distribution: {e}")
+        print(f"Lỗi Time Series: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
     finally:
         db.close()
-
-# ========================== WEBSOCKETS (STREAMING) ==========================
+    
+# ========================== WEBSOCKETS ==========================
 
 @router.websocket("/ws/frames/{camera_id}")
 async def ws_frames(websocket: WebSocket, camera_id: int):
-    """Stream Video (Chỉ gửi khi ảnh thay đổi)"""
     await websocket.accept()
     key = f"camera_{camera_id}"
     last_frame_data = None
-    
     try:
         while True:
             if sys_state.frame_dict and key in sys_state.frame_dict:
@@ -256,19 +297,13 @@ async def ws_frames(websocket: WebSocket, camera_id: int):
                     await websocket.send_bytes(current_frame_data)
                     last_frame_data = current_frame_data
             await asyncio.sleep(0.05) 
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
-
+    except Exception: pass
 
 @router.websocket("/ws/info/{camera_id}")
 async def ws_info(websocket: WebSocket, camera_id: int):
-    """Stream Info (Realtime từ RAM)"""
     await websocket.accept()
     key = f"camera_{camera_id}"
     last_ts = 0
-    
     try:
         while True:
             if sys_state.info_dict and key in sys_state.info_dict:
@@ -278,5 +313,4 @@ async def ws_info(websocket: WebSocket, camera_id: int):
                     await websocket.send_json(current_data)
                     last_ts = current_ts
             await asyncio.sleep(0.5)
-    except WebSocketDisconnect:
-        print(f"Client disconnected info Camera {camera_id}")
+    except Exception: pass

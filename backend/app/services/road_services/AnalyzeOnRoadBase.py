@@ -3,16 +3,18 @@ import numpy as np
 from datetime import datetime
 from ultralytics import YOLO
 import yt_dlp
-import json
 from pathlib import Path
 import traceback
 import time
 from app.core.config import settings_metric_transport
 import os
+# ✅ Import Database
+from app.db.base import SessionLocal
+from app.models.traffic_logs import TrafficLog
 
 class AnalyzeOnRoadBase:
     """
-    Traffic Counter Base Class - SUPER LIGHTWEIGHT VERSION (360p + Skip 5)
+    Traffic Counter Base Class - BALANCED QUALITY VERSION (480p Processing / 720p Input)
     """
 
     def __init__(self, video_index=0, shared_dict=None, result_queue=None,
@@ -28,7 +30,8 @@ class AnalyzeOnRoadBase:
         self.path_video = settings_metric_transport.PATH_VIDEOS[video_index]
         self.model_path = settings_metric_transport.MODELS_PATH
         self.device = settings_metric_transport.DEVICE
-        self.roi_pts = settings_metric_transport.REGIONS[video_index].astype(np.int32).reshape((-1, 1, 2))
+        raw_roi = settings_metric_transport.REGIONS[video_index]
+        self.roi_pts = np.array(raw_roi, dtype=np.int32).reshape((-1, 1, 2))
 
         # --- Shared Data ---
         self.shared_dict = shared_dict
@@ -37,10 +40,14 @@ class AnalyzeOnRoadBase:
         self.show = show
         self.count_conf = count_conf
 
-        # ===== 🚀 CẤU HÌNH TỐI ƯU =====
-        self.skip_frames = 3       # Skip 5 frame (AI nghỉ ngơi nhiều hơn)
-        self.process_width = 480    # Resize xử lý nhỏ
-        self.process_height = 270 
+        # ===== 🚀 CẤU HÌNH CHẤT LƯỢNG (Đã Nâng Cấp) =====
+        self.skip_frames = 3       # Giữ nguyên 3 để cân bằng tải
+        
+        # Tăng kích thước xử lý (Trước là 480x270 -> Mờ)
+        # 854x480 là chuẩn 480p (Widescreen), đủ nét để đọc biển số gần
+        self.process_width = 854   
+        self.process_height = 480  
+        
         self.last_result = None
         
         # ===== Auto Save =====
@@ -52,7 +59,6 @@ class AnalyzeOnRoadBase:
         self.logs_dir = Path("logs/traffic_count")
         self.logs_dir.mkdir(parents=True, exist_ok=True)
 
-        # Mỗi camera luôn dùng 1 file cố định, ví dụ: cam0.json, cam1.json
         self.current_day = datetime.now().date()
 
         # ===== Model Loading =====
@@ -73,38 +79,9 @@ class AnalyzeOnRoadBase:
         self.frame_count = 0
         self.is_running = True
 
-        # --- Helper Methods ---
-    def _get_daily_json_path(self, dt=None):
-        """
-        Trả về path file JSON theo từng ngày và từng camera.
-        Ví dụ: logs/traffic_count/cam0_20251129.json
-        """
-        if dt is None:
-            dt = datetime.now()
-        date_str = dt.strftime("%Y%m%d")
-        return self.logs_dir / f"cam{self.video_index}_{date_str}.json"
-
-    def _init_daily_hourly_template(self, dt):
-        """
-        Khởi tạo list 24 dict, mỗi dict là 1 giờ trong ngày.
-        Ban đầu mọi count = 0, timestamp = đầu giờ (hh:00).
-        """
-        day_data = []
-        for h in range(24):
-            ts = datetime(dt.year, dt.month, dt.day, h, 0, 0).isoformat()
-            day_data.append({
-                "timestamp": ts,
-                "car": 0,
-                "motor": 0,
-                "bus": 0,
-                "truck": 0,
-                "total_vehicles": 0
-            })
-        return day_data
-
+    # --- Helper Methods ---
     def _is_inside_roi(self, cx, cy):
         return cv2.pointPolygonTest(self.roi_pts, (float(cx), float(cy)), False) >= 0
-
 
     def _update_set(self, data_dict, class_name, obj_id):
         if class_name not in data_dict: data_dict[class_name] = set()
@@ -151,9 +128,11 @@ class AnalyzeOnRoadBase:
     def _update_shared_data(self):
         if self.shared_dict is None: return
         try:
+            # Lấy hợp tất cả các key để đảm bảo không sót loại xe nào
             all_classes = set(self.counted_ids.keys()) | set(self.current_in_roi.keys())
             total_entered = sum(len(self.counted_ids.get(cls, set())) for cls in all_classes)
             total_current = sum(self.current_in_roi.get(cls, 0) for cls in all_classes)
+            
             key = f"camera_{self.video_index}"
             self.shared_dict[key] = {
                 'fps': round(self.current_fps, 1),
@@ -165,93 +144,52 @@ class AnalyzeOnRoadBase:
         except Exception: pass
 
     def _check_and_save(self):
-        """
-        Auto-save thống kê ra 1 file JSON (ghi đè mỗi lần).
-
-        Trường trong JSON:
-            timestamp      : thời điểm lưu (ISO string)
-            car            : tổng số xe car đã đi qua ROI
-            motor          : tổng số xe máy/motor/bike đã đi qua ROI
-            bus            : tổng số xe bus đã đi qua ROI
-            truck          : tổng số xe truck đã đi qua ROI
-            total_vehicles : tổng tất cả loại xe ở trên
-        """
-        if not self.auto_save:
-            return
+        """Auto-save thống kê vào PostgreSQL database."""
+        if not self.auto_save: return
 
         now = datetime.now()
-
-        # Chỉ lưu khi đủ interval (mặc định 60s)
         if (now - self.last_save_time).total_seconds() < self.save_interval_seconds:
             return
 
-        # Nếu sang ngày mới -> reset thống kê & cập nhật current_day
-        if now.date() != self.current_day:
-            self.current_day = now.date()
-            self.counted_ids.clear()
-            self.count_entering.clear()
-            self.count_exiting.clear()
-            self.tracked_objects.clear()
-            self.current_in_roi.clear()
-
-        # ----- Lấy số lượng theo từng class -----
+        # Tính toán số lượng
         car_count = len(self.counted_ids.get("car", set()))
-
+        
+        # Gộp tất cả biến thể xe máy
         motor_ids = set()
         motor_ids |= self.counted_ids.get("motor", set())
         motor_ids |= self.counted_ids.get("bike", set())
         motor_ids |= self.counted_ids.get("motorbike", set())
+        motor_ids |= self.counted_ids.get("motorcycle", set())
         motor_count = len(motor_ids)
 
         bus_count = len(self.counted_ids.get("bus", set()))
         truck_count = len(self.counted_ids.get("truck", set()))
-
         total_vehicles = car_count + motor_count + bus_count + truck_count
 
-        # Snapshot cho giờ hiện tại (0..23)
-        hour_index = now.hour
-        hour_data = {
-            "timestamp": now.isoformat(),
-            "car": int(car_count),
-            "motor": int(motor_count),
-            "bus": int(bus_count),
-            "truck": int(truck_count),
-            "total_vehicles": int(total_vehicles),
-        }
-
-        json_path = self._get_daily_json_path(now)
-
+        # Ghi vào DB
+        db = SessionLocal()
         try:
-            # Đọc dữ liệu cũ nếu file đã tồn tại
-            if json_path.exists():
-                with open(json_path, "r", encoding="utf-8") as f:
-                    day_data = json.load(f)
-                # Nếu file hư hoặc không đủ 24 phần tử thì khởi tạo lại
-                if not isinstance(day_data, list) or len(day_data) != 24:
-                    day_data = self._init_daily_hourly_template(now)
-            else:
-                # Chưa có file -> tạo mới template 24 giờ
-                day_data = self._init_daily_hourly_template(now)
-
-            # Cập nhật dict cho khung giờ hiện tại
-            day_data[hour_index] = hour_data
-
-            # Ghi đè lại file
-            with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(day_data, f, ensure_ascii=False, indent=2)
-
-            # Cập nhật mốc thời gian đã lưu
+            log = TrafficLog(
+                camera_id=self.video_index,
+                timestamp=now,
+                count_car=int(car_count),
+                count_motor=int(motor_count),
+                count_bus=int(bus_count),
+                count_truck=int(truck_count),
+                total_vehicles=int(total_vehicles),
+                fps=round(self.current_fps, 1)
+            )
+            db.add(log)
+            db.commit()
             self.last_save_time = now
-
-            # Debug (nếu cần)
-            # print(f"[Cam {self.video_index}] Saved hour={hour_index} to {json_path}")
         except Exception as e:
-            print(f"[Cam {self.video_index}] ❌ Error saving daily JSON stats: {e}")
-
-
+            print(f"[Cam {self.video_index}] ❌ Error saving DB: {e}")
+            db.rollback()
+        finally:
+            db.close()
 
     def process_single_frame(self, frame):
-        # Logic Skip Frame: Chỉ chạy AI khi chia hết cho skip_frames
+        # Logic Skip Frame
         if self.frame_count % self.skip_frames == 0:
             results = self.model.track(frame, persist=True, device=self.device, conf=0.25, iou=0.5, verbose=False)
             r = results[0]
@@ -265,7 +203,6 @@ class AnalyzeOnRoadBase:
             else: self.current_in_roi = {}
             plotted = r.plot()
         else:
-            # Dùng kết quả cũ vẽ đè lên (Hold & Draw)
             if self.last_result is not None: plotted = self.last_result.plot(img=frame)
             else: plotted = frame
         
@@ -273,26 +210,45 @@ class AnalyzeOnRoadBase:
         return plotted
 
     def get_stream_url(self, youtube_url):
-        # Lấy stream 360p siêu nhẹ
+        """Lấy stream URL 720p với cookies"""
+        try:
+            base_dir = Path(__file__).resolve().parent.parent.parent.parent
+            cookie_path = base_dir / "cookies.txt"
+        except:
+            cookie_path = Path("cookies.txt")
+
+        if cookie_path.exists():
+            print(f"[Camera {self.video_index}] 🍪 Đã tìm thấy Cookies tại: {cookie_path}")
+        else:
+            print(f"[Camera {self.video_index}] ⚠️ CẢNH BÁO: Không tìm thấy cookies.txt")
+
         ydl_opts = {
-            "quiet": True, "no_warnings": True,
-            "format": "best[height<=360]", 
+            "quiet": True, 
+            "no_warnings": True,
+            # 🔥 NÂNG CẤP: Lấy video tốt nhất <= 720p (Nét hơn 360p rất nhiều)
+            "format": "best[height<=720]", 
             "nocheckcertificate": True,
+            "cookiefile": str(cookie_path) if cookie_path.exists() else None,
+            "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         }
+        
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=False)
-                if info and "url" in info: return info["url"]
-        except Exception: pass
+                if info and "url" in info: 
+                    return info["url"]
+        except Exception as e:
+            print(f"[Camera {self.video_index}] ❌ Lỗi lấy link: {e}")
+            
         return youtube_url
 
     def process_video(self):
-        print(f"[Camera {self.video_index}] 🎬 START MONITORING (360p, Skip {self.skip_frames})")
+        print(f"[Camera {self.video_index}] 🎬 START MONITORING (720p Input, 480p Process)")
         while self.is_running:
             try:
                 stream_url = self.get_stream_url(self.path_video)
                 cam = cv2.VideoCapture(stream_url)
-                # 🔥 CHỈ GIỮ 1 FRAME BUFFER
                 cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
                 if not cam.isOpened():
@@ -307,14 +263,14 @@ class AnalyzeOnRoadBase:
                     ok, frame = cam.read()
                     if not ok: break 
 
-                    # Resize nhỏ
+                    # 🔥 NÂNG CẤP: Resize to hơn (854x480) để nhìn rõ hơn
                     frame = cv2.resize(frame, (self.process_width, self.process_height))
                     plotted = self.process_single_frame(frame)
 
-                    # Gửi ảnh API (Quality 30)
+                    # 🔥 NÂNG CẤP: Gửi ảnh API với chất lượng 65% (Đẹp hơn mức 30 cũ)
                     if self.frame_dict is not None:
                         try:
-                            _, buffer = cv2.imencode('.jpg', plotted, [cv2.IMWRITE_JPEG_QUALITY, 30])
+                            _, buffer = cv2.imencode('.jpg', plotted, [cv2.IMWRITE_JPEG_QUALITY, 65])
                             self.frame_dict[f"camera_{self.video_index}"] = buffer.tobytes()
                         except Exception: pass
 
@@ -335,29 +291,22 @@ class AnalyzeOnRoadBase:
                 print(f"[Cam {self.video_index}] Error: {e}")
                 time.sleep(2)
         if self.show: cv2.destroyAllWindows()
+
 def main():
-    """
-    Chạy thử 1 camera để kiểm tra hàm _check_and_save
-    - Đếm xe từ video index 0 (PATH_VIDEOS[0])
-    - Tự động lưu JSON sau mỗi save_interval_seconds
-    """
-    # Tùy ý chỉnh save_interval_seconds cho dễ thấy file cập nhật
+    """Chạy thử 1 camera"""
     analyzer = AnalyzeOnRoadBase(
         video_index=0,
         shared_dict=None,
         result_queue=None,
-        show=True,               # hiện cửa sổ video, nếu không cần thì để False
+        show=True,
         frame_dict=None,
         auto_save=True,
-        save_interval_seconds=5  # 5 giây ghi JSON 1 lần cho dễ test
+        save_interval_seconds=5
     )
-
     try:
         analyzer.process_video()
     except KeyboardInterrupt:
-        print("\n[MAIN] Stop by user (Ctrl+C)")
         analyzer.is_running = False
-
 
 if __name__ == "__main__":
     main()

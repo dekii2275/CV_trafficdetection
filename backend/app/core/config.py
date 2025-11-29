@@ -31,10 +31,10 @@ class SettingMetricTransport:
     # ===== 1. ROI REGIONS (Giữ lại 2 vùng tương ứng) =====
     REGIONS = [
         # Camera 0: Phuong Tran
-          np.array([[6, 199], [261, 115], [423, 126], [365, 265], [5, 266]]),
+        np.array([[1, 354], [1, 478], [629, 476], [776, 171], [628, 160], [4, 357]]),
         
         # Camera 1: Nguyen Hieu  
-        np.array([[3, 154], [223, 71], [310, 79], [163, 268], [4, 266]]),
+        np.array([[0,277], [484, 105], [570,110], [299, 477], [4, 474]]),
     ]
     
     # ===== 2. VIDEO URLS (Giữ lại 2 link) =====

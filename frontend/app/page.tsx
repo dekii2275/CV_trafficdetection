@@ -1,9 +1,11 @@
+// frontend/app/page.tsx
 import Sidebar from "./components/sidebar/Sidebar";
 import VideoPlayer from "./components/stream/VideoPlayer";
 import RealtimeStats from "./components/stats/RealtimeStats";
 import ChartCard from "./components/charts/ChartCard";
-import RealtimeCounterChart from "./components/charts/RealtimeCounterChart";
-import VehicleLineChart from "./components/charts/VehicleLineChart";
+import PieChart from "./components/charts/PieChart";
+import BarChart from "./components/charts/BarChart";
+import AnalyticsStats from "./components/analytics/AnalyticsStats";
 import type { ChartPoint } from "./lib/types";
 
 type VehicleBreakdownItem = { label: string; value: number };
@@ -44,8 +46,9 @@ export default async function DashboardPage() {
 
       let totalCar = 0;
       let totalTruck = 0;
-      let totalBike = 0;
+      let totalMotor = 0;
       let totalBus = 0;
+      let totalAllVehicles = 0;
 
       const hourlyFlow: ChartPoint[] = [];
 
@@ -54,14 +57,16 @@ export default async function DashboardPage() {
         const item = hourlyArray[h] || {};
         const car = Number(item.car ?? 0);
         const truck = Number(item.truck ?? 0);
-        const bike = Number(item.motor ?? 0);
+        const motor = Number(item.motor ?? 0);
         const bus = Number(item.bus ?? 0);
         const totalVehicles = Number(item.total_vehicles ?? 0);
 
+        // Sum từng loại xe (mỗi giờ là độc lập)
         totalCar += car;
         totalTruck += truck;
-        totalBike += bike;
+        totalMotor += motor;
         totalBus += bus;
+        totalAllVehicles += totalVehicles;
 
         hourlyFlow.push({
           label: `${h.toString().padStart(2, "0")}h`,
@@ -69,10 +74,15 @@ export default async function DashboardPage() {
         });
       }
 
+      // Đảm bảo tính nhất quán: nếu sum từng loại khác với total_vehicles,
+      // ưu tiên dùng total_vehicles (vì nó là giá trị chính thức)
+      const sumByType = totalCar + totalTruck + totalMotor + totalBus;
+      const useTotalVehicles = Math.abs(sumByType - totalAllVehicles) > 1; // Cho phép sai số nhỏ
+
       const vehicleBreakdown: VehicleBreakdownItem[] = [
         { label: "Cars", value: totalCar },
         { label: "Trucks", value: totalTruck },
-        { label: "Bikes", value: totalBike },
+        { label: "Motors", value: totalMotor },
         { label: "Buses", value: totalBus },
       ];
 
@@ -89,7 +99,8 @@ export default async function DashboardPage() {
   ]);
 
   return (
-    <div className="flex min-h-screen w-full bg-slate-950 text-slate-100">
+    <div className="flex min-h-screen w-full bg-[#0f172a] text-slate-100">
+      {/* 1. Sidebar bên trái */}
       <Sidebar />
 
       <section className="flex-1 space-y-6 p-6">
@@ -117,26 +128,32 @@ export default async function DashboardPage() {
           <RealtimeStats cameraId={1} cameraLabel="Camera 2" />
         </div>
 
-        {/* HÀNG 3: Phân bố theo loại phương tiện của 2 camera */}
+        {/* HÀNG 3: Phân bố theo loại phương tiện (Biểu đồ tròn) */}
         <div className="grid gap-6 xl:grid-cols-2">
           <ChartCard title="Phân bố theo loại phương tiện • Camera 1">
-            <RealtimeCounterChart data={cam0Charts.vehicleBreakdown} />
+            <PieChart data={cam0Charts.vehicleBreakdown} />
           </ChartCard>
 
           <ChartCard title="Phân bố theo loại phương tiện • Camera 2">
-            <RealtimeCounterChart data={cam1Charts.vehicleBreakdown} />
+            <PieChart data={cam1Charts.vehicleBreakdown} />
           </ChartCard>
         </div>
 
-        {/* HÀNG 4: Lưu lượng theo giờ của 2 camera */}
+        {/* HÀNG 4: Lưu lượng theo giờ (Biểu đồ cột) */}
         <div className="grid gap-6 xl:grid-cols-2">
           <ChartCard title="Lưu lượng theo giờ • Camera 1">
-            <VehicleLineChart points={cam0Charts.hourlyFlow} />
+            <BarChart points={cam0Charts.hourlyFlow} />
           </ChartCard>
 
           <ChartCard title="Lưu lượng theo giờ • Camera 2">
-            <VehicleLineChart points={cam1Charts.hourlyFlow} />
+            <BarChart points={cam1Charts.hourlyFlow} />
           </ChartCard>
+        </div>
+
+        {/* HÀNG 5: Phân tích thống kê nâng cao từ analyze.py */}
+        <div className="grid gap-6 xl:grid-cols-2">
+          <AnalyticsStats cameraId={0} cameraLabel="Camera 1" />
+          <AnalyticsStats cameraId={1} cameraLabel="Camera 2" />
         </div>
       </section>
     </div>

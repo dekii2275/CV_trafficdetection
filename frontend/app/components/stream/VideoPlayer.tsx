@@ -14,7 +14,7 @@ const CAMERAS = [
 ];
 
 // ==================================================================================
-// 2. COMPONENT CON: SINGLE CAMERA PLAYER (Giữ nguyên)
+// 2. COMPONENT CHÍNH: VIDEO PLAYER (Default Export)
 // ==================================================================================
 interface VideoPlayerProps {
   roadName?: string;
@@ -22,7 +22,7 @@ interface VideoPlayerProps {
   label?: string; 
 }
 
-function SingleCameraPlayer({ 
+export default function VideoPlayer({ 
   roadName = "0", 
   backendUrl = "ws://localhost:8000",
   label
@@ -81,7 +81,7 @@ function SingleCameraPlayer({
         URL.revokeObjectURL(imgRef.current.src);
       }
     };
-  }, [roadName, backendUrl, label]);
+  }, [roadName, backendUrl]); // ✅ Đã bỏ label khỏi dependency array
 
   return (
     <div className="relative w-full h-full bg-slate-900 rounded-lg overflow-hidden border border-slate-700 shadow-md flex flex-col group">
@@ -121,9 +121,9 @@ function SingleCameraPlayer({
 }
 
 // ==================================================================================
-// 3. COMPONENT CHÍNH: MULTI CAMERA GRID (Đã chỉnh layout cho 2 CAM)
+// 3. COMPONENT PHỤ: MULTI CAMERA GRID (Named Export)
 // ==================================================================================
-export default function MultiCameraGrid() {
+export function MultiCameraGrid() {
   return (
     <div className="w-full p-4 bg-slate-950 rounded-xl border border-slate-800 shadow-2xl">
       <div className="flex items-center justify-between mb-4">
@@ -146,7 +146,7 @@ export default function MultiCameraGrid() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full h-[50vh] min-h-[400px]">
         {CAMERAS.map((cam) => (
           <div key={cam.id} className="w-full h-full">
-            <SingleCameraPlayer 
+            <VideoPlayer 
               roadName={cam.id} 
               label={cam.name} 
               backendUrl={cam.wsUrl} 

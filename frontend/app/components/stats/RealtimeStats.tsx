@@ -1,16 +1,16 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import Card from "../ui/Card"; // Đảm bảo Card.tsx tồn tại ở ../ui/Card
-import StatCard from "./StatCard"; // Import file vừa tạo ở trên
-import { formatCompactNumber, formatNumber } from "../../lib/utils"; // Hàm format số
+import Card from "../ui/Card";
+import StatCard from "./StatCard";
+import { formatCompactNumber, formatNumber } from "../../lib/utils";
 
 type RealtimeStatsProps = {
   cameraId: number;
   cameraLabel?: string;
 };
 
-// Kiểu dữ liệu nhận từ WebSocket Backend
+// Cấu trúc dữ liệu nhận từ WebSocket Backend
 type WebSocketMessage = {
   fps: number;
   total_entered: number;
@@ -20,6 +20,7 @@ type WebSocketMessage = {
     car?: { entered: number; current: number };
     motorcycle?: { entered: number; current: number };
     motorbike?: { entered: number; current: number };
+    motor?: { entered: number; current: number };
     bus?: { entered: number; current: number };
     truck?: { entered: number; current: number };
   };
@@ -44,7 +45,9 @@ export default function RealtimeStats({
 
   useEffect(() => {
     // 1. Xác định URL WebSocket
+    // Nếu chạy local: ws://localhost:8000/api/v1/ws/info/0
     const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "localhost:8000";
+    // Xử lý logic http/https để chuyển sang ws/wss
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const cleanBase = API_BASE.replace("http://", "").replace("https://", "");
     const wsUrl = `${wsProtocol}//${cleanBase}/api/v1/ws/info/${cameraId}`;
@@ -66,7 +69,7 @@ export default function RealtimeStats({
             // Mapping dữ liệu từ Backend sang State Frontend
             const d = data.details || {};
             
-            // Cộng dồn xe máy (motorcycle + motorbike)
+            // Cộng dồn xe máy (motorcycle + motorbike + motor)
             const bikeCount = 
               (d.motorcycle?.entered || 0) + 
               (d.motorbike?.entered || 0) + 

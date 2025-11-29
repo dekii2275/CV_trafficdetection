@@ -1,4 +1,4 @@
-export type VehicleType = "car" | "truck" | "bike" | "bus";
+export type VehicleType = "car" | "truck" | "motor" | "bus";
 
 export interface VehicleStats {
     timestamp: number;

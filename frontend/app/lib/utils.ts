@@ -1,15 +1,12 @@
 const numberFormatter = new Intl.NumberFormat("en-US");
 const compactFormatter = new Intl.NumberFormat("en-US", { notation: "compact" });
 
-export function formatNumber(num: number): string {
-  return new Intl.NumberFormat('vi-VN').format(num);
+export function formatNumber(value: number): string {
+    return numberFormatter.format(value);
 }
 
-export function formatCompactNumber(num: number): string {
-  return new Intl.NumberFormat('vi-VN', { 
-    notation: "compact", 
-    compactDisplay: "short" 
-  }).format(num);
+export function formatCompactNumber(value: number): string {
+    return compactFormatter.format(value);
 }
 
 export function formatRatePerMinute(value: number): string {

@@ -17,6 +17,7 @@ langchain
 langchain_google_genai
 langgraph
 asyncpg
+aiosqlite
 chromadb 
 sentence-transformers 
 google-generativeai 
