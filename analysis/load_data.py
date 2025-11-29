@@ -1,11 +1,9 @@
 # load_data.py
-
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import pandas as pd
 from datetime import datetime, timezone
-
 DEFAULT_CLASSES = ["car", "motor", "bus", "truck"]
 
 def read_stats_lines(path: str) -> List[Dict[str, Any]]:
@@ -24,7 +22,6 @@ def read_stats_lines(path: str) -> List[Dict[str, Any]]:
             except Exception:
                 print("Warning: không thể parse line:", ln[:200])
     return raws
-
 
 def read_stats_tail(path: str, n: int = 500) -> List[Dict[str, Any]]:
     p = Path(path)
@@ -58,7 +55,6 @@ def read_stats_tail(path: str, n: int = 500) -> List[Dict[str, Any]]:
             continue
     return objs
 
-
 def _parse_timestamp(candidate) -> Optional[float]:
     if candidate is None:
         return None
@@ -83,7 +79,6 @@ def _parse_timestamp(candidate) -> Optional[float]:
             except Exception:
                 return None
     return None
-
 
 def normalize_records(raws: List[Dict[str, Any]], classes: List[str] = None) -> pd.DataFrame:
     classes = classes or DEFAULT_CLASSES
