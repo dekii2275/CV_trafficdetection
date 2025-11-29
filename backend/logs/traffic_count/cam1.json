@@ -1,8 +1,8 @@
 {
-  "timestamp": "2025-11-28T23:14:52.820445",
-  "car": 0,
-  "motor": 1,
-  "bus": 0,
-  "truck": 0,
-  "total_vehicles": 1
+  "timestamp": "2025-11-29T11:00:30.837267",
+  "car": 51,
+  "motor": 366,
+  "bus": 8,
+  "truck": 6,
+  "total_vehicles": 431
 }
