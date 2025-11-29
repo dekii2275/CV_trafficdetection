@@ -17,11 +17,6 @@ from load_data import DEFAULT_CLASSES, load_and_normalize, load_tail_and_normali
 
 
 def load_recent_stats(stats_path, minutes=10, classes=None, tail_lines: int = None):
-    """Load and normalize recent stats using shared load_data helpers.
-
-    If `tail_lines` is provided the function will read only last N lines (fast path).
-    Returns a DataFrame with columns: ts (unix seconds), timestamp (pd.Timestamp UTC), class cols, total.
-    """
     classes = classes or DEFAULT_CLASSES
     try:
         if tail_lines is not None:
@@ -31,12 +26,9 @@ def load_recent_stats(stats_path, minutes=10, classes=None, tail_lines: int = No
     except Exception as e:
         print(f"[Load] error reading stats: {e}")
         return pd.DataFrame()
-
     if df is None or df.empty:
         print("[Load] No valid records.")
         return pd.DataFrame()
-
-    # filter to last `minutes` minutes using numeric ts if available
     if 'ts' in df.columns and not df['ts'].isna().all():
         last_ts = float(df['ts'].dropna().iloc[-1])
         limit_ts = last_ts - minutes * 60
@@ -45,34 +37,26 @@ def load_recent_stats(stats_path, minutes=10, classes=None, tail_lines: int = No
         last_ts = df['timestamp'].dropna().iloc[-1].timestamp()
         limit_ts = pd.to_datetime(last_ts - minutes * 60, unit='s', utc=True)
         df = df[df['timestamp'] >= pd.to_datetime(limit_ts, utc=True)].copy()
-
     if df.empty:
         print(f"[Load] No records found in the last {minutes} minutes.")
         return pd.DataFrame()
-
     print(f"[Load] {len(df)} records in the last {minutes} minutes.")
-    # ensure class columns exist
     for c in classes:
         if c not in df.columns:
             df[c] = 0
-
-    # ensure total
     if 'total' not in df.columns:
         df['total'] = df[classes].sum(axis=1)
-
     return df.reset_index(drop=True)
 
 def aggregate_timeseries(df: pd.DataFrame, freq: str = "1T", classes: list = None) -> pd.DataFrame:
     classes = classes or DEFAULT_CLASSES
     d = df.copy()
-    # support both numeric ts (unix seconds) or datetime timestamp
     if 'timestamp' in d.columns and pd.api.types.is_datetime64_any_dtype(d['timestamp']):
         d = d.set_index('timestamp')
     elif 'ts' in d.columns:
         d['timestamp'] = pd.to_datetime(d['ts'], unit='s', utc=True)
         d = d.set_index('timestamp')
     else:
-        # try coercion
         d['timestamp'] = pd.to_datetime(d.get('timestamp'))
         d = d.set_index('timestamp')
     agg = d[classes].resample(freq).last().fillna(0).astype(int)
@@ -208,7 +192,6 @@ def analyze_pipeline_for_api(stats_path: str,
     merged = perc.join(peak_df[["is_peak_auto", "is_peak_thr"]], how="left")
     if export:
         export_for_backend(merged, out_dir=out_dir)
-
     records = to_json_records(merged)
     return merged, records
 
@@ -222,8 +205,7 @@ def analyze_pipeline_realtime(stats_path: str,
     classes = classes or DEFAULT_CLASSES
     df = load_recent_stats(stats_path, minutes=minutes_window, classes=classes)
     if df.empty:
-        return pd.DataFrame()
-    
+        return pd.DataFrame()    
     agg = aggregate_timeseries(df, freq=agg_freq, classes=classes)
     perc = compute_percentages(agg, classes=classes)
     peak_df = detect_peaks(agg, window=peak_window, threshold=peak_threshold)
