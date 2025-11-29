@@ -240,3 +240,5 @@ frontend/*.tsbuildinfo
 
 # Vercel
 frontend/.vercel/
+backend/cookies.txt
+cookies.txt
