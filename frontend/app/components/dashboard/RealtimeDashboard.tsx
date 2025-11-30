@@ -13,8 +13,6 @@ interface RealtimeDashboardProps {
 export default function RealtimeDashboard({ cameraId = 0 }: RealtimeDashboardProps) {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      
-      {/* --- PHẦN 1: VIDEO & REALTIME STATS (QUAN TRỌNG NHẤT) --- */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         
         {/* Cột trái (Lớn): Hiển thị Video Stream */}
@@ -35,7 +33,6 @@ export default function RealtimeDashboard({ cameraId = 0 }: RealtimeDashboardPro
         </div>
       </div>
 
-      {/* --- PHẦN 2: BIỂU ĐỒ PHÂN TÍCH (Charts) --- */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Biểu đồ phân bố loại xe (Pie Chart) - Dữ liệu tổng hợp */}
         <VehicleDistributionChart />
@@ -44,7 +41,6 @@ export default function RealtimeDashboard({ cameraId = 0 }: RealtimeDashboardPro
         <VehicleLineChart cameraId={cameraId} />
       </div>
 
-      {/* --- PHẦN 3: PHÂN TÍCH CHUYÊN SÂU (Analytics) --- */}
       <div>
         {/* Các chỉ số như: Đỉnh lưu lượng, độ lệch chuẩn, xu hướng tăng/giảm */}
         <AnalyticsStats cameraId={cameraId} />
