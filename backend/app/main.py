@@ -2,19 +2,12 @@ import os
 import sys
 import multiprocessing
 
-# =================================================================
-# ⚠️ QUAN TRỌNG: CÀI ĐẶT MULTIPROCESSING NGAY ĐẦU FILE
-# Phải đặt trước tất cả các import khác để tránh lỗi PyTorch/OpenCV
-# =================================================================
 try:
     # 'spawn' là phương thức an toàn nhất cho AI/Machine Learning process
     multiprocessing.set_start_method('spawn', force=True)
 except RuntimeError:
-    pass  # Bỏ qua nếu đã được set trước đó
+    pass  
 
-# =================================================================
-# IMPORT MODULES
-# =================================================================
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import RedirectResponse
@@ -26,14 +19,14 @@ from app.core.config import settings_network
 # Import Routers
 from app.api import api_vehicles, api_chatbot, chat_history
 
-# Config môi trường cho OpenCV (tránh lỗi xung đột camera trên Windows)
+
 os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
 os.environ["OPENCV_VIDEOIO_PRIORITY_DSHOW"] = "1"
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-# =================================================================
+
 # KHỞI TẠO APP
-# =================================================================
+
 app = FastAPI(
     title="Smart Transportation System API",
     description="""
@@ -49,7 +42,7 @@ app = FastAPI(
     redoc_url="/redoc", 
     contact={
         "name": "Minh Anh - K68 Data Science",
-        "email": "levietanhtrump@gmail.com",
+        
     },
 )
 
@@ -62,21 +55,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# =================================================================
+
 # EVENTS (Startup & Shutdown)
-# =================================================================
+
 @app.on_event("startup")
 async def startup_event():
     """Chạy khi server bắt đầu"""
-    print("🚀 Server starting up...")
+    print("Server starting up...")
     
     # 1. Tạo bảng Database
     print("Creating database tables...")
     try:
         await create_tables()
-        print("✅ Database tables created.")
+        print("Database tables created.")
     except Exception as e:
-        print(f"❌ Database error: {e}")
+        print(f"Database error: {e}")
         # Không raise e để server vẫn chạy tiếp các dịch vụ khác nếu DB lỗi nhẹ
 
 @app.on_event("shutdown")
@@ -86,11 +79,9 @@ def shutdown_event():
     Lưu ý: Các router con (api_vehicles) cũng sẽ tự kích hoạt event shutdown của riêng nó
     để tắt các process AI.
     """
-    print("👋 Server shutting down...")
+    print("Server shutting down...")
 
-# =================================================================
-# ROUTES
-# =================================================================
+
 
 @app.get(
     path='/',
@@ -122,9 +113,7 @@ app.include_router(
     tags=["Chat History"],
 )
 
-# =================================================================
-# ENTRY POINT (Dành cho việc debug trực tiếp)
-# =================================================================
+
 if __name__ == "__main__":
     import uvicorn
     # Chạy server ở chế độ debug

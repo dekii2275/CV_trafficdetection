@@ -216,11 +216,11 @@ def build_vector_database(documents_dir: str = str(ABS_DOCS_DIR), reset: bool = 
 
 def test_search(query: str):
     print("\n" + "="*60)
-    print(f"🧪 TEST TRUY VẤN THỬ: \"{query}\"")
+    print(f"TEST TRUY VẤN THỬ: \"{query}\"")
     print("="*60)
     
     if not ABS_DB_DIR.exists():
-        print("❌ Database chưa được xây dựng. Hãy chạy lệnh build trước.")
+        print("Database chưa được xây dựng. Hãy chạy lệnh build trước.")
         return
 
     vector_store = VectorStoreService(
@@ -241,29 +241,23 @@ def test_search(query: str):
         preview = content[:250].replace('\n', ' ') + "..."
         
         print(f"--- Top {i} (Độ khớp: {score:.2f}) ---")
-        print(f"📌 Nguồn: {meta.get('source', 'N/A')} | {meta.get('article', 'N/A')}")
-        print(f"📖 Nội dung: {preview}\n")
+        print(f"Nguồn: {meta.get('source', 'N/A')} | {meta.get('article', 'N/A')}")
+        print(f"Nội dung: {preview}\n")
 
 if __name__ == "__main__":
     import argparse
     
-    # Cấu hình Argument Parser
     parser = argparse.ArgumentParser(description="Tool build dữ liệu cho Chatbot Giao thông")
     
-    # Thêm argument --reset (store_true nghĩa là nếu có cờ này thì giá trị là True)
     parser.add_argument("--reset", action="store_true", help="Xóa sạch DB cũ và build lại từ đầu")
     
-    # Thêm argument --test-query
     parser.add_argument("--test-query", type=str, default="không đội mũ bảo hiểm phạt bao nhiêu", help="Câu hỏi để test thử sau khi build")
     
-    # Thêm argument --skip-build
     parser.add_argument("--skip-build", action="store_true", help="Chỉ chạy test, không build lại DB")
     
     args = parser.parse_args()
     
-    # Logic chạy chính
     if not args.skip_build:
         build_vector_database(reset=args.reset)
     
-    # Luôn chạy test sau khi build xong (hoặc nếu skip-build)
     test_search(args.test_query)

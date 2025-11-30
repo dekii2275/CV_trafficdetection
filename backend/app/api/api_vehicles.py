@@ -97,8 +97,6 @@ def load_traffic_df(
 
 
 
-
-
 # BACKGROUND WORKER
 async def save_stats_to_db_worker():
     print("Background Worker: Đã kích hoạt chế độ ghi log giao thông...")
@@ -195,14 +193,6 @@ async def get_info_road(camera_id: int):
     if data: return JSONResponse(dict(data))
     return JSONResponse({"status": "waiting"}, status_code=404)
 
-# 🔥 FIX LỖI 404: Thêm lại API /stats nhưng dùng dữ liệu RAM
-@router.get("/stats/{camera_id}")
-async def get_stats_legacy(camera_id: int):
-    if sys_state.info_dict is None: return JSONResponse({}, status_code=404)
-    key = f"camera_{camera_id}"
-    data = sys_state.info_dict.get(key)
-    if data: return JSONResponse(dict(data))
-    return JSONResponse({"status": "waiting"}, status_code=404)
 
 @router.get("/frames/{camera_id}")
 async def get_frame_road(camera_id: int):
