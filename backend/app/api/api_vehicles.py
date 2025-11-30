@@ -557,70 +557,70 @@ async def peak_detection_chart(
 
 
 
-@router.get("/charts/stacked-bar-pct/{camera_id}")
-async def stacked_bar_pct_chart(
-    camera_id: int,
-    minutes: int = 60,
-    db: Session = Depends(get_db),
-):
-    """
-    Stacked bar theo phần trăm từng loại xe theo thời gian.
-    """
-    # Nếu muốn giống plot gốc (mỗi cột = 5 phút) thì để freq="5min"
-    df, classes = load_traffic_df(db, camera_id, hours=24, freq="1min")
+# @router.get("/charts/stacked-bar-pct/{camera_id}")
+# async def stacked_bar_pct_chart(
+#     camera_id: int,
+#     minutes: int = 60,
+#     db: Session = Depends(get_db),
+# ):
+#     """
+#     Stacked bar theo phần trăm từng loại xe theo thời gian.
+#     """
+#     # Nếu muốn giống plot gốc (mỗi cột = 5 phút) thì để freq="5min"
+#     df, classes = load_traffic_df(db, camera_id, hours=24, freq="5min")
 
-    if df.empty or not classes:
-        return JSONResponse(
-            {
-                "camera_id": camera_id,
-                "points": [],
-                "classes": [],
-                "unit": "percent",
-                "message": "No data in last 24h",
-            }
-        )
+#     if df.empty or not classes:
+#         return JSONResponse(
+#             {
+#                 "camera_id": camera_id,
+#                 "points": [],
+#                 "classes": [],
+#                 "unit": "percent",
+#                 "message": "No data in last 24h",
+#             }
+#         )
 
-    # Nếu chưa có *_pct thì tự tính
-    pct_cols = [c + "_pct" for c in classes if (c + "_pct") in df.columns]
-    if not pct_cols:
-        sum_per_row = df[classes].sum(axis=1).replace(0, pd.NA)
-        for c in classes:
-            # ép float trước khi fillna để khỏi bị FutureWarning
-            df[c + "_pct"] = (
-                df[c].astype("float64") * 100.0 / sum_per_row
-            ).fillna(0.0)
-        pct_cols = [c + "_pct" for c in classes]
+#     # Nếu chưa có *_pct thì tự tính
+#     pct_cols = [c + "_pct" for c in classes if (c + "_pct") in df.columns]
+#     if not pct_cols:
+#         sum_per_row = df[classes].sum(axis=1).replace(0, pd.NA)
+#         for c in classes:
+#             # ép float trước khi fillna để khỏi bị FutureWarning
+#             df[c + "_pct"] = (
+#                 df[c].astype("float64") * 100.0 / sum_per_row
+#             ).fillna(0.0)
+#         pct_cols = [c + "_pct" for c in classes]
 
-    tail = df.tail(minutes)
+#     tail = df.tail(minutes)
 
-    points = []
-    for idx, row in tail.iterrows():
-        values = {}
-        for c in classes:
-            col = c + "_pct"
-            if col not in row:
-                continue
-            v = row[col]
-            values[c] = float(v) if pd.notna(v) else 0.0
+#     points = []
+#     for idx, row in tail.iterrows():
+#         values = {}
+#         for c in classes:
+#             col = c + "_pct"
+#             if col not in row:
+#                 continue
+#             v = row[col]
+#             values[c] = float(v) if pd.notna(v) else 0.0
 
-        points.append(
-            {
-                # chỉ gửi HH:MM, không gửi full timestamp
-                "label": idx.strftime("%H:%M"),
-                "values": values,
-            }
-        )
+#         points.append(
+#             {
+#                 # chỉ gửi HH:MM, không gửi full timestamp
+#                 "label": idx.strftime("%H:%M"),
+#                 "values": values,
+#             }
+#         )
 
-    return JSONResponse(
-        {
-            "camera_id": camera_id,
-            "points": points,
-            "classes": classes,
-            "unit": "percent",
-            "period": f"{minutes}m",
-            "timezone": "Asia/Bangkok (UTC+7)",
-        }
-    )
+#     return JSONResponse(
+#         {
+#             "camera_id": camera_id,
+#             "points": points,
+#             "classes": classes,
+#             "unit": "percent",
+#             "period": f"{minutes}m",
+#             "timezone": "Asia/Bangkok (UTC+7)",
+#         }
+#     )
 
 
 
@@ -779,20 +779,20 @@ async def get_vehicle_distribution():
 async def get_time_series_data(camera_id: int, minutes: int = 60):
     """
     Lấy time-series cho camera, chuyển timestamp về Asia/Bangkok (UTC+7)
+    -> GIÁ TRỊ THEO TỪNG PHÚT (không cộng dồn)
     """
-    db = SessionLocal()
+    db: Session = SessionLocal()
     try:
         tz_local = ZoneInfo("Asia/Bangkok")
 
         # Lấy thời gian hiện tại theo UTC
         now_utc = datetime.now(timezone.utc)
+        # Lấy rộng 24h cho an toàn (đủ dữ liệu để resample + diff)
         time_threshold_utc = now_utc - timedelta(hours=24)
 
         print(f"🔍 [DEBUG] Current Time UTC: {now_utc}")
         print(f"🔍 [DEBUG] Threshold UTC:    {time_threshold_utc}")
 
-        # Nếu cột TrafficLog.timestamp là DateTime(timezone=True) và lưu UTC,
-        # filter bằng UTC là đúng
         query = (
             db.query(TrafficLog)
             .filter(
@@ -807,38 +807,47 @@ async def get_time_series_data(camera_id: int, minutes: int = 60):
 
         if df.empty:
             return JSONResponse(
-                {"camera_id": camera_id, "points": [], "message": "DB Empty in last 24h"}
+                {
+                    "camera_id": camera_id,
+                    "points": [],
+                    "message": "DB Empty in last 24h",
+                }
             )
 
         # --- CHUYỂN MÚI GIỜ ---
-        # Giả sử DB lưu UTC (timezone-aware hoặc naive-UTC)
+        # Giả sử DB lưu UTC
         df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-        # Convert sang Asia/Bangkok (UTC+7)
         df["timestamp"] = df["timestamp"].dt.tz_convert(tz_local)
 
         print(f"🕒 [DEBUG] First record (local): {df['timestamp'].iloc[0]}")
         print(f"🕒 [DEBUG] Last  record (local): {df['timestamp'].iloc[-1]}")
 
-        # Nếu muốn bỏ thông tin tz để frontend đỡ rắc rối thì có thể:
-        # df["timestamp"] = df["timestamp"].dt.tz_localize(None)
-
         df.set_index("timestamp", inplace=True)
 
-        # Resample theo phút trên trục thời gian local (vẫn được)
+        # Resample theo phút: lấy max (vì total_vehicles là tích lũy), rồi ffill
         df_resampled = df.resample("1min").max().ffill()
 
-        df_flow = df_resampled  # đang dùng tổng tích lũy
+        # ===== TÍNH SỐ XE MỖI PHÚT (KHÔNG CỘNG DỒN) =====
+        # total_vehicles(t) - total_vehicles(t-1)
+        df_resampled["vehicles_per_min"] = (
+            df_resampled["total_vehicles"]
+            .diff()          # hiệu giữa 2 phút
+            .fillna(0)       # phút đầu tiên -> 0
+            .clip(lower=0)   # tránh âm nếu counter reset
+            .astype(int)
+        )
+
+        # Lấy N phút gần nhất (theo tham số minutes)
+        # Mỗi dòng = 1 phút → lấy tail(minutes) là được
+        tail_df = df_resampled.tail(minutes)
 
         data_points = []
-        tail_df = df_flow.tail(60)
-
         for idx, row in tail_df.iterrows():
-            val = int(row["total_vehicles"])
+            val = int(row["vehicles_per_min"])
             data_points.append(
                 {
-                    # idx đã là giờ UTC+7
-                    "label": idx.strftime("%H:%M"),
-                    "value": val,
+                    "label": idx.strftime("%H:%M"),  # đã là giờ UTC+7
+                    "value": val,                    # số xe trong phút đó
                 }
             )
 
@@ -848,6 +857,7 @@ async def get_time_series_data(camera_id: int, minutes: int = 60):
                 "points": data_points,
                 "period": f"{minutes}m",
                 "timezone": "Asia/Bangkok (UTC+7)",
+                "aggregation": "per_minute",  # optional: gửi thêm meta cho frontend
             }
         )
 

@@ -11,7 +11,7 @@ import HistTotalChart from "./components/charts/HistTotalChart";
 import BoxplotChart from "./components/charts/BoxplotChart";
 import RollingAvgChart from "./components/charts/RollingAvgChart";
 import PeaksChart from "./components/charts/PeaksChart";
-import StackedBarPctChart from "./components/charts/StackedBarPctChart";
+// import StackedBarPctChart from "./components/charts/StackedBarPctChart";
 
 export default function DashboardPage() {
   return (
@@ -183,7 +183,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Stacked Bar % cho 2 camera */}
+        {/* Stacked Bar % cho 2 camera
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-slate-200">
             Tỉ lệ phần trăm theo loại phương tiện (Stacked %)
@@ -198,7 +198,7 @@ export default function DashboardPage() {
               <StackedBarPctChart cameraId={1} />
             </div>
           </div>
-        </div>
+        </div> */}
 
         {/* Peaks cho 2 camera */}
         <div className="space-y-2">

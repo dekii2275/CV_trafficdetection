@@ -124,33 +124,86 @@ export default function AreaChart({ cameraId }: Props) {
     );
   }
 
-  const width = 320;
-  const height = 180;
-  const paddingX = 24;
-  const paddingY = 16;
-  const innerWidth = width - paddingX * 2;
-  const innerHeight = height - paddingY * 2;
+  // ==== cấu hình SVG giống RollingAvg: có trục Y + scroll ngang ====
+  const height = 220;
+  const paddingLeft = 48;
+  const paddingRight = 16;
+  const paddingTop = 16;
+  const paddingBottom = 28;
+
+  const minPerPointWidth = 40;
+  const innerBaseWidth = 320;
+  const innerWidth = Math.max(points.length * minPerPointWidth, innerBaseWidth);
+
+  const width = paddingLeft + innerWidth + paddingRight;
+  const innerHeight = height - paddingTop - paddingBottom;
   const n = points.length;
 
   const getX = (idx: number) =>
-    paddingX +
-    (n === 1 ? innerWidth / 2 : (idx / (n - 1)) * innerWidth);
+    paddingLeft + (n === 1 ? innerWidth / 2 : (idx / (n - 1)) * innerWidth);
   const getY = (v: number) =>
-    paddingY + (1 - v / maxValue) * innerHeight;
+    paddingTop + (1 - v / maxValue) * innerHeight;
+
+  // trục Y – tick
+  const yTicks = 4;
+  const tickValues = Array.from({ length: yTicks + 1 }, (_, i) =>
+    (maxValue / yTicks) * i,
+  );
 
   return (
     <div className="flex flex-col gap-4">
+      {/* SVG có thể cuộn ngang */}
       <div className="overflow-x-auto rounded-lg border border-slate-700 bg-slate-900/60 p-3">
         <svg width={width} height={height}>
+          {/* Grid ngang + tick Y */}
+          {tickValues.map((v, idx) => {
+            const y = getY(v);
+            const isZero = v === 0;
+
+            return (
+              <g key={idx}>
+                <line
+                  x1={paddingLeft}
+                  y1={y}
+                  x2={paddingLeft + innerWidth}
+                  y2={y}
+                  stroke={isZero ? "#4b5563" : "#1f2937"}
+                  strokeWidth={isZero ? 1.2 : 1}
+                  strokeDasharray={isZero ? "0" : "4 4"}
+                />
+                <text
+                  x={paddingLeft - 8}
+                  y={y + 3}
+                  textAnchor="end"
+                  className="fill-slate-400 text-[10px]"
+                >
+                  {formatNumber(Math.round(v))}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Trục Y */}
           <line
-            x1={paddingX}
-            y1={paddingY + innerHeight}
-            x2={paddingX + innerWidth}
-            y2={paddingY + innerHeight}
-            stroke="#1f2937"
-            strokeWidth={1}
+            x1={paddingLeft}
+            y1={paddingTop}
+            x2={paddingLeft}
+            y2={paddingTop + innerHeight}
+            stroke="#4b5563"
+            strokeWidth={1.2}
           />
 
+          {/* Trục X */}
+          <line
+            x1={paddingLeft}
+            y1={paddingTop + innerHeight}
+            x2={paddingLeft + innerWidth}
+            y2={paddingTop + innerHeight}
+            stroke="#4b5563"
+            strokeWidth={1.2}
+          />
+
+          {/* Các series dạng area + line */}
           {classes.map((cls, idxCls) => {
             const colorClass = colors[idxCls % colors.length];
             const stroke = colorHex[colorClass] || "#38bdf8";
@@ -163,8 +216,8 @@ export default function AreaChart({ cameraId }: Props) {
 
             const polygonPoints =
               pathPoints +
-              ` ${getX(n - 1)},${paddingY + innerHeight}` +
-              ` ${getX(0)},${paddingY + innerHeight}`;
+              ` ${getX(n - 1)},${paddingTop + innerHeight}` +
+              ` ${getX(0)},${paddingTop + innerHeight}`;
 
             return (
               <g key={cls}>
@@ -186,11 +239,12 @@ export default function AreaChart({ cameraId }: Props) {
             );
           })}
 
+          {/* Label trục X */}
           {points.map((p, idx) => (
             <text
               key={idx}
               x={getX(idx)}
-              y={height - 4}
+              y={height - 8}
               textAnchor="middle"
               className="fill-slate-400 text-[10px]"
             >
@@ -200,6 +254,7 @@ export default function AreaChart({ cameraId }: Props) {
         </svg>
       </div>
 
+      {/* Legend */}
       <div className="flex flex-wrap gap-3">
         {classes.map((cls, idx) => {
           const colorClass = colors[idx % colors.length];

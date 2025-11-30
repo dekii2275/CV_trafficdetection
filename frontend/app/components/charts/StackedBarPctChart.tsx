@@ -49,7 +49,7 @@ export default function GroupedBarChart({ cameraId }: Props) {
         setError(null);
 
         const res = await fetch(
-          `${API_BASE}/api/v1/charts/grouped-bar/${cameraId}`,
+          `${API_BASE}/api/v1/charts/stacked-bar-pct/${cameraId}`,
           { cache: "no-store" }
         );
         const json = await res.json();
