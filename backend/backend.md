@@ -12,7 +12,7 @@ Khi app FastAPI start, `startup_event()` sẽ:
 
 - Tạo `multiprocessing.Manager`, `info_dict`, `frame_dict`, `result_queue`.
 - Khởi động `num_cameras = 2` process `run_analyzer(...)`.
-- Tạo background task `save_stats_to_db_worker()` để **10s/lần**:
+- Tạo background task `save_stats_to_db_worker()` để 10s/lần:
   - Lấy snapshot từ `info_dict`
   - Ghi log vào bảng `TrafficLog`.
 
@@ -65,7 +65,7 @@ Lấy thông tin realtime (thống kê đếm xe, fps, v.v.) đang nằm trong R
 ### 1.2. `GET /frames/{camera_id}`
 
 **Mục đích:** 
-Lấy **snapshot ảnh** hiện tại của camera, để render lên UI (thumbnail / khung realtime).
+Lấy snapshot ảnh hiện tại của camera, để render lên UI (thumbnail / khung realtime).
 
 **Path params:**
 
@@ -96,7 +96,7 @@ Dữ liệu được đọc từ bảng `TrafficLog` qua helper `load_traffic_df
 ### 2.1. `GET /charts/vehicle-distribution`
 
 **Mục đích:** 
-Pie chart – phân bố loại xe trong **ngày hôm nay**, tính từ **bản ghi mới nhất mỗi camera**.
+Pie chart – phân bố loại xe trong ngày hôm nay, tính từ bản ghi mới nhất mỗi camera.
 
 **Query params:** 
 Không có.
@@ -127,7 +127,7 @@ Không có.
 ### 2.2. `GET /charts/time-series/{camera_id}`
 
 **Mục đích:** 
-Time-series tổng số **xe / phút** (không cộng dồn), trong `minutes` phút gần nhất.
+Time-series tổng số xe / phút (không cộng dồn), trong `minutes` phút gần nhất.
 
 **Path params:**
 
@@ -463,7 +463,7 @@ Base prefix gợi ý: `/api/v1/chat-history` (tùy bạn mount router).
 
 ---
 
-### 5.1. `POST /messages`
+### 4.1. `POST /messages`
 
 **Mục đích:** 
 Lưu một tin nhắn chat (của user hoặc bot) vào DB, có **session tracking**.
@@ -504,7 +504,7 @@ Trả về bản ghi vừa lưu, ví dụ:
 
 ---
 
-### 5.2. `GET /messages`
+### 4.2. `GET /messages`
 
 **Mục đích:** 
 Lấy lịch sử chat, có thể lọc theo `session_id`.
@@ -534,7 +534,7 @@ Lấy lịch sử chat, có thể lọc theo `session_id`.
 
 ---
 
-### 5.3. `GET /messages/context/{session_id}`
+### 4.3. `GET /messages/context/{session_id}`
 
 **Mục đích:** 
 Lấy **N tin nhắn gần nhất** của một session để làm **context cho RAG / LLM**.
@@ -572,7 +572,7 @@ Lấy **N tin nhắn gần nhất** của một session để làm **context cho
 
 ---
 
-### 5.4. `GET /sessions`
+### 4.4. `GET /sessions`
 
 **Mục đích:** 
 Liệt kê tất cả các **session** cùng metadata cơ bản.
@@ -602,7 +602,7 @@ Liệt kê tất cả các **session** cùng metadata cơ bản.
 
 ---
 
-### 5.5. `DELETE /sessions/{session_id}`
+### 4.5. `DELETE /sessions/{session_id}`
 
 **Mục đích:** 
 Xóa **toàn bộ lịch sử** của một session (user muốn xóa conversation).
@@ -618,7 +618,7 @@ Xóa **toàn bộ lịch sử** của một session (user muốn xóa conversati
 
 ---
 
-### 5.6. `DELETE /sessions/cleanup`
+### 4.6. `DELETE /sessions/cleanup`
 
 **Mục đích:** 
 Dọn dẹp **các session cũ** không hoạt động quá X ngày.
@@ -648,7 +648,7 @@ Nếu không có session nào quá cũ:
 
 ---
 
-### 5.7. `GET /statistics`
+### 4.7. `GET /statistics`
 
 **Mục đích:** 
 Thống kê tổng quan về việc sử dụng chatbot (usage dashboard).
@@ -667,7 +667,7 @@ Thống kê tổng quan về việc sử dụng chatbot (usage dashboard).
 
 ---
 
-### 5.8. `DELETE /messages/{message_id}`
+### 4.8. `DELETE /messages/{message_id}`
 
 **Mục đích:** 
 Xóa **một** tin nhắn cụ thể.
@@ -683,7 +683,7 @@ Xóa **một** tin nhắn cụ thể.
 
 ---
 
-## 6. Chatbot / RAG APIs
+## 5. Chatbot / RAG APIs
 
 Các API này là “lớp trên” của chat-history: thực sự chat với AI (RAG), đồng thời **lưu lại** lịch sử vào bảng `ChatMessage`.
 
@@ -691,7 +691,7 @@ Base prefix gợi ý: `/api/v1/chatbot`.
 
 ---
 
-### 6.1. Startup – khởi tạo RAG Agent
+### 5.1. Startup – khởi tạo RAG Agent
 
 ```py
 @router.on_event("startup")
@@ -707,7 +707,7 @@ Khi service khởi động, nó:
 
 ---
 
-### 6.2. `POST /chat`
+### 5.2. `POST /chat`
 
 **Mục đích:** 
 Chat 1 turn với AI (RAG), có **lưu lại** cả câu hỏi & câu trả lời vào DB.
@@ -752,7 +752,7 @@ Ví dụ (suy ra từ code):
 
 ---
 
-### 6.3. `WS /ws/chat` – WebSocket Chat
+### 5.3. `WS /ws/chat` – WebSocket Chat
 
 **Mục đích:** 
 Chat realtime qua WebSocket, **tự tạo session mới** cho mỗi kết nối, và vẫn lưu vào DB.
@@ -841,7 +841,7 @@ function sendMessage(text) {
 
 ---
 
-### 6.4. `DELETE /chat/session/{session_id}`
+### 5.4. `DELETE /chat/session/{session_id}`
 
 **Mục đích:** 
 Xóa toàn bộ lịch sử chat của một `session_id` trong DB (cho chatbot RAG này). 
@@ -863,7 +863,7 @@ Khá giống `DELETE /sessions/{session_id}` bên chat-history, nhưng được 
 
 ---
 
-## 7. Tóm tắt Mapping Chatbot ↔ History
+## 6. Tóm tắt Mapping Chatbot ↔ History
 
 - **Ghi / Đọc lịch sử chi tiết:**
   - `POST /messages`, `GET /messages`, `GET /messages/context/{session_id}`, …
