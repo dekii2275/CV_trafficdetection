@@ -238,50 +238,74 @@ async def get_vehicle_distribution():
     finally:
         db.close()
 @router.get("/charts/time-series/{camera_id}")
-async def get_time_series_data(camera_id: int, hours: int = 12):
-    """Trả về dữ liệu time series để vẽ line chart (từ database)"""
+async def get_time_series_data(camera_id: int, minutes: int = 60):
+    """
+    Phiên bản Debug: In ra thời gian để kiểm tra lệch múi giờ
+    """
     db = SessionLocal()
     try:
-        time_threshold = datetime.now() - timedelta(hours=hours)
-        query = db.query(
-            TrafficLog.timestamp,
-            TrafficLog.total_vehicles
-        ).filter(
+        # Lấy thời gian hiện tại
+        now = datetime.now()
+        # Lấy rộng ra 24 TIẾNG để chắc chắn bắt được dữ liệu dù lệch múi giờ
+        time_threshold = now - timedelta(hours=24) 
+        
+        print(f"🔍 [DEBUG] Current Time: {now}")
+        print(f"🔍 [DEBUG] Threshold: {time_threshold}")
+        
+        query = db.query(TrafficLog).filter(
             TrafficLog.camera_id == camera_id,
             TrafficLog.timestamp >= time_threshold
-        ).order_by(TrafficLog.timestamp).statement
+        ).order_by(TrafficLog.timestamp.asc())
         
-        df = pd.read_sql(query, db.bind)
+        # In ra câu SQL để kiểm tra
+        # print(query.statement.compile(compile_kwargs={"literal_binds": True}))
         
+        df = pd.read_sql(query.statement, db.bind)
+        
+        print(f"📊 [DEBUG] Found {len(df)} records in last 24h.")
+        
+        if not df.empty:
+            print(f"🕒 [DEBUG] First record time: {df['timestamp'].iloc[0]}")
+            print(f"🕒 [DEBUG] Last record time: {df['timestamp'].iloc[-1]}")
+
         if df.empty:
-            return JSONResponse({"message": "Chưa đủ dữ liệu"})
+            return JSONResponse({"camera_id": camera_id, "points": [], "message": "DB Empty in last 24h"})
         
+        # ... (Phần xử lý resample giữ nguyên) ...
         df['timestamp'] = pd.to_datetime(df['timestamp'])
+        if df['timestamp'].dt.tz is not None:
+            df['timestamp'] = df['timestamp'].dt.tz_localize(None)
+            
         df.set_index('timestamp', inplace=True)
         
-        # Resample theo giờ (hoặc phút tùy yêu cầu)
-        df_hourly = df.resample('1h').sum().fillna(0)
+        # Resample 1 phút
+        df_resampled = df.resample('1min').max().ffill()
         
-        # Format dữ liệu cho frontend
+        # KHÔNG DÙNG DIFF ĐỂ TEST (Hiển thị tổng tích lũy cho chắc ăn)
+        df_flow = df_resampled 
+
         data_points = []
-        for idx, row in df_hourly.iterrows():
-            hour_label = idx.strftime('%H:00')
+        # Lấy 60 điểm cuối cùng (bất kể thời gian nào)
+        tail_df = df_flow.tail(60)
+        
+        for idx, row in tail_df.iterrows():
+            val = int(row['total_vehicles'])
             data_points.append({
-                "label": hour_label,
-                "value": int(row['total_vehicles'])
+                "label": idx.strftime('%H:%M'),
+                "value": val
             })
         
         return JSONResponse({
             "camera_id": camera_id,
             "points": data_points,
-            "period_hours": hours
+            "period": f"{minutes}m"
         })
+        
     except Exception as e:
-        print(f"Lỗi Time Series: {e}")
+        print(f"❌ ERROR: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
     finally:
         db.close()
-    
 # ========================== WEBSOCKETS ==========================
 
 @router.websocket("/ws/frames/{camera_id}")

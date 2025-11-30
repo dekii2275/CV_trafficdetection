@@ -2,159 +2,90 @@
 import Sidebar from "./components/sidebar/Sidebar";
 import VideoPlayer from "./components/stream/VideoPlayer";
 import RealtimeStats from "./components/stats/RealtimeStats";
-import ChartCard from "./components/charts/ChartCard";
-import PieChart from "./components/charts/PieChart";
-import BarChart from "./components/charts/BarChart";
+import VehicleDistributionChart from "./components/charts/VehicleDistributionChart";
+import VehicleLineChart from "./components/charts/VehicleLineChart";
 import AnalyticsStats from "./components/analytics/AnalyticsStats";
-import type { ChartPoint } from "./lib/types";
 
-type VehicleBreakdownItem = { label: string; value: number };
-
-type HourlyStat = {
-  timestamp?: string;
-  car?: number;
-  motor?: number;
-  bus?: number;
-  truck?: number;
-  total_vehicles?: number;
-};
-
-type CameraChartData = {
-  vehicleBreakdown: VehicleBreakdownItem[];
-  hourlyFlow: ChartPoint[];
-};
-
-export default async function DashboardPage() {
-  const API_BASE =
-    process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-
-  async function fetchCameraChartData(
-    cameraId: number,
-  ): Promise<CameraChartData> {
-    try {
-      const res = await fetch(`${API_BASE}/api/v1/stats/${cameraId}`, {
-        cache: "no-store",
-      });
-
-      if (!res.ok) {
-        console.warn(`stats ${cameraId} HTTP ${res.status}`);
-        return { vehicleBreakdown: [], hourlyFlow: [] };
-      }
-
-      const data = (await res.json()) as HourlyStat[] | HourlyStat;
-      const hourlyArray: HourlyStat[] = Array.isArray(data) ? data : [data];
-
-      let totalCar = 0;
-      let totalTruck = 0;
-      let totalMotor = 0;
-      let totalBus = 0;
-      let totalAllVehicles = 0;
-
-      const hourlyFlow: ChartPoint[] = [];
-
-      const maxHours = Math.min(24, hourlyArray.length);
-      for (let h = 0; h < maxHours; h++) {
-        const item = hourlyArray[h] || {};
-        const car = Number(item.car ?? 0);
-        const truck = Number(item.truck ?? 0);
-        const motor = Number(item.motor ?? 0);
-        const bus = Number(item.bus ?? 0);
-        const totalVehicles = Number(item.total_vehicles ?? 0);
-
-        // Sum từng loại xe (mỗi giờ là độc lập)
-        totalCar += car;
-        totalTruck += truck;
-        totalMotor += motor;
-        totalBus += bus;
-        totalAllVehicles += totalVehicles;
-
-        hourlyFlow.push({
-          label: `${h.toString().padStart(2, "0")}h`,
-          value: totalVehicles,
-        });
-      }
-
-      // Đảm bảo tính nhất quán: nếu sum từng loại khác với total_vehicles,
-      // ưu tiên dùng total_vehicles (vì nó là giá trị chính thức)
-      const sumByType = totalCar + totalTruck + totalMotor + totalBus;
-      const useTotalVehicles = Math.abs(sumByType - totalAllVehicles) > 1; // Cho phép sai số nhỏ
-
-      const vehicleBreakdown: VehicleBreakdownItem[] = [
-        { label: "Cars", value: totalCar },
-        { label: "Trucks", value: totalTruck },
-        { label: "Motors", value: totalMotor },
-        { label: "Buses", value: totalBus },
-      ];
-
-      return { vehicleBreakdown, hourlyFlow };
-    } catch (e) {
-      console.error("fetchCameraChartData error:", e);
-      return { vehicleBreakdown: [], hourlyFlow: [] };
-    }
-  }
-
-  const [cam0Charts, cam1Charts] = await Promise.all([
-    fetchCameraChartData(0),
-    fetchCameraChartData(1),
-  ]);
-
+export default function DashboardPage() {
   return (
     <div className="flex min-h-screen w-full bg-[#0f172a] text-slate-100">
       {/* 1. Sidebar bên trái */}
       <Sidebar />
 
-      <section className="flex-1 space-y-6 p-6">
+      {/* 2. Nội dung chính */}
+      <section className="flex-1 space-y-6 p-6 overflow-y-auto h-screen">
+        
         {/* Header */}
         <header className="flex flex-col gap-2">
-          <p className="text-sm uppercase tracking-wide text-emerald-400">
-            Live counting
-          </p>
-          <h1 className="text-2xl font-semibold">Traffic AI Vehicle Counter</h1>
-          <p className="text-sm text-slate-400">
-            Hệ thống giám sát 2 camera, hiển thị thống kê realtime cho từng
-            camera và biểu đồ theo loại phương tiện / theo thời gian.
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+            </span>
+            <p className="text-sm uppercase tracking-wide text-emerald-400 font-bold">
+              System Online
+            </p>
+          </div>
+          <h1 className="text-3xl font-bold text-white">Traffic AI Command Center</h1>
+          <p className="text-slate-400">
+            Hệ thống giám sát giao thông thông minh & Phân tích dữ liệu thời gian thực
           </p>
         </header>
 
-        {/* HÀNG 1: Grid camera (component VideoPlayer của bạn đã chia 2 camera) */}
-        <VideoPlayer
-          roadName="default"
-          backendUrl="ws://localhost:8000"
-        />
-
-        {/* HÀNG 2: Realtime stats từng camera */}
-        <div className="grid gap-6 xl:grid-cols-2">
-          <RealtimeStats cameraId={0} cameraLabel="Camera 1" />
-          <RealtimeStats cameraId={1} cameraLabel="Camera 2" />
+        {/* --- KHỐI 1: VIDEO STREAM (2 CAMERA RIÊNG BIỆT - KÍCH THƯỚC LỚN) --- */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Camera 0 - Khung lớn */}
+          <div className="rounded-2xl overflow-hidden border border-slate-800 shadow-2xl bg-black h-[70vh] min-h-[500px]">
+            <VideoPlayer 
+              roadName="0"
+              backendUrl="ws://localhost:8000"
+              label="Camera 0 - Cổng Chính"
+            />
+          </div>
+          
+          {/* Camera 1 - Khung lớn */}
+          <div className="rounded-2xl overflow-hidden border border-slate-800 shadow-2xl bg-black h-[70vh] min-h-[500px]">
+            <VideoPlayer 
+              roadName="1"
+              backendUrl="ws://localhost:8000"
+              label="Camera 1 - Ngã Tư A"
+            />
+          </div>
         </div>
 
-        {/* HÀNG 3: Phân bố theo loại phương tiện (Biểu đồ tròn) */}
+        {/* --- KHỐI 2: REALTIME COUNTER (Số nhảy múa) --- */}
         <div className="grid gap-6 xl:grid-cols-2">
-          <ChartCard title="Phân bố theo loại phương tiện • Camera 1">
-            <PieChart data={cam0Charts.vehicleBreakdown} />
-          </ChartCard>
-
-          <ChartCard title="Phân bố theo loại phương tiện • Camera 2">
-            <PieChart data={cam1Charts.vehicleBreakdown} />
-          </ChartCard>
+          <RealtimeStats cameraId={0} cameraLabel="Camera 01: Cổng Chính" />
+          <RealtimeStats cameraId={1} cameraLabel="Camera 02: Ngã Tư A" />
         </div>
 
-        {/* HÀNG 4: Lưu lượng theo giờ (Biểu đồ cột) */}
-        <div className="grid gap-6 xl:grid-cols-2">
-          <ChartCard title="Lưu lượng theo giờ • Camera 1">
-            <BarChart points={cam0Charts.hourlyFlow} />
-          </ChartCard>
+        {/* --- KHỐI 3: BIỂU ĐỒ PHÂN TÍCH (Database History) --- */}
+        <div className="grid gap-6 xl:grid-cols-3">
+          {/* Cột 1: Biểu đồ đường - Cam 01 */}
+          <div className="xl:col-span-1">
+            <VehicleLineChart cameraId={0} />
+          </div>
 
-          <ChartCard title="Lưu lượng theo giờ • Camera 2">
-            <BarChart points={cam1Charts.hourlyFlow} />
-          </ChartCard>
+          {/* Cột 2: Biểu đồ đường - Cam 02 */}
+          <div className="xl:col-span-1">
+            <VehicleLineChart cameraId={1} />
+          </div>
+
+          {/* Cột 3: Phân bố phương tiện (Toàn hệ thống) */}
+          <div className="xl:col-span-1">
+            <VehicleDistributionChart />
+          </div>
         </div>
 
-        {/* HÀNG 5: Phân tích thống kê nâng cao từ analyze.py */}
-        <div className="grid gap-6 xl:grid-cols-2">
-          <AnalyticsStats cameraId={0} cameraLabel="Camera 1" />
-          <AnalyticsStats cameraId={1} cameraLabel="Camera 2" />
+        {/* --- KHỐI 4: PHÂN TÍCH CHUYÊN SÂU (AI Analytics) --- */}
+        <h2 className="text-xl font-bold text-white pt-4 border-t border-slate-800">
+          Phân tích chuyên sâu (Advanced Analytics)
+        </h2>
+        <div className="grid gap-6 xl:grid-cols-1">
+          <AnalyticsStats cameraId={0} cameraLabel="Camera 01" />
+          <AnalyticsStats cameraId={1} cameraLabel="Camera 02" />
         </div>
+
       </section>
     </div>
   );
