@@ -29,24 +29,24 @@
 
 ### Chương 1: Giới thiệu
 **📝 Tóm tắt**
-   - ✨ Tổng quan ngắn gọn về dự án, mục tiêu chính và kết quả nổi bật
+   - Tổng quan ngắn gọn về dự án, mục tiêu chính và kết quả nổi bật
    - Hệ thống đếm phương tiện giao thông tự động sử dụng YOLOv8m
    - Đạt mAP@0.5 = 92.49%, Precision = 85.62%, Recall = 87.95%
    - Xử lý realtime với tốc độ 25-30 FPS
 
 **❓ Bài toán đặt ra**
-   - 📌 Mô tả vấn đề quản lý và giám sát giao thông
+   - Mô tả vấn đề quản lý và giám sát giao thông
    - Các thách thức: nhận diện 4 loại phương tiện, đếm chính xác, xử lý realtime, xây dựng hệ thống tích hợp
 
 ### Chương 2: Phương pháp & Triển khai
 **⚙️ Phương pháp**
-   - 🔍 Lý thuyết về CNN, kiến trúc YOLOv8m
+   - Lý thuyết về CNN, kiến trúc YOLOv8m
    - Phương pháp Fine-tuning từ weights pre-trained COCO
-   - Các chỉ số đánh giá: IoU, Precision, Recall, mAP
+   - Các chỉ số đánh giá: IoU, Precision, Recall, mAP, F1-Score
    - Dữ liệu: 1547 ảnh với 4 lớp (Car, Motor, Truck, Bus)
 
 **💻 Triển khai**
-   - 🧩 Môi trường: Python 3.10+, PyTorch, Ultralytics YOLO
+   - Môi trường: Python 3.10+, PyTorch, Ultralytics YOLO
    - Backend: FastAPI với REST API và WebSocket
    - Frontend: Next.js 14 với TypeScript và Tailwind CSS
    - Phân tích dữ liệu: Pipeline xử lý realtime với binary-safe tail reading
@@ -54,7 +54,7 @@
 
 ### Chương 3: Kết quả & Phân tích
 **📊 Kết quả & Thảo luận**
-   - 📈 Kết quả huấn luyện mô hình: mAP@0.5 = 92.49%
+   - Kết quả huấn luyện mô hình: mAP@0.5 = 92.49%
    - Phân tích hiệu năng theo từng lớp phương tiện
    - Hiệu năng xử lý realtime: 25-30 FPS
    - Kết quả hệ thống đếm xe: độ chính xác trên 90%
@@ -96,10 +96,10 @@
 - [X] 📄 Hoàn thiện báo cáo PDF chi tiết theo cấu trúc trên  
 - [X] 🎨 Tuân thủ định dạng và nội dung theo hướng dẫn giảng viên  
 - [X] ➕ Thêm các mục riêng của dự án nếu cần  
-- [ ] 🔍 Kiểm tra lại ngữ pháp, diễn đạt và độ chính xác kỹ thuật  
-- [ ] ⬆️ Tải lên báo cáo PDF, slide trình bày và mã nguồn  
-- [ ] 🧩 Đảm bảo tất cả mã nguồn được tài liệu hóa đầy đủ với bình luận và docstring  
-- [ ] 🔗 Kiểm tra các liên kết và tài liệu tham khảo hoạt động đúng
+- [X] 🔍 Kiểm tra lại ngữ pháp, diễn đạt và độ chính xác kỹ thuật  
+- [X] ⬆️ Tải lên báo cáo PDF, slide trình bày và mã nguồn  
+- [X] 🧩 Đảm bảo tất cả mã nguồn được tài liệu hóa đầy đủ với bình luận và docstring  
+- [X] 🔗 Kiểm tra các liên kết và tài liệu tham khảo hoạt động đúng
 
 ### 🏆 Tiêu chí đánh giá Bài tập nhóm
 
@@ -130,3 +130,4 @@ Dự án **Vehicle Counting AI** là một hệ thống đếm phương tiện g
 ---
 
 *Cập nhật lần cuối: 🗓️ Tháng 11/2025*
+
