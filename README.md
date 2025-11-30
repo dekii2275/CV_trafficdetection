@@ -9,8 +9,8 @@
 * **🏫 Trường:** VNU-HUS (Đại học Quốc gia Hà Nội - Trường Đại học Khoa học Tự nhiên)  
 * **📝 Tiêu đề:** Vehicle Counting AI  
 * **📅 Ngày nộp:** 30/11/2025  
-* **📄 Báo cáo PDF:** 📄 [Liên kết tới báo cáo PDF trong kho lưu trữ này]  
-* **🖥️ Slide thuyết trình:** 🖥️ [Liên kết tới slide thuyết trình trong kho lưu trữ này]  
+* **📄 Báo cáo PDF:** 📄 [[Liên kết tới báo cáo PDF trong kho lưu trữ này](https://github.com/dekii2275/CV_trafficdetection/blob/main/baocao_ai.pdf)]  
+* **🖥️ Slide thuyết trình:** 🖥️ [[Liên kết tới slide thuyết trình trong kho lưu trữ này](https://github.com/dekii2275/CV_trafficdetection/blob/main/slide_AI.pdf)]
 * **📂 Kho lưu trữ:** 📁 https://github.com/dekii2275/CV_trafficdetection
 
 **👥 Thành viên nhóm:**
@@ -130,4 +130,5 @@ Dự án **Vehicle Counting AI** là một hệ thống đếm phương tiện g
 ---
 
 *Cập nhật lần cuối: 🗓️ Tháng 11/2025*
+
 
