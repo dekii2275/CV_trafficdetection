@@ -87,8 +87,6 @@ export default function Sidebar() {
   );
 }
 
-/* ====================== Sub Components ====================== */
-
 // Nhãn + Giá trị trong phần AI Engine Profile
 function Row({ label, value, valueClass="" }: { label: string; value: any; valueClass?: string }) {
   return (
