@@ -94,539 +94,14 @@ def load_traffic_df(
     return df_resampled, classes
 
 
-# @router.get("/line/{camera_id}")
-# async def line_chart(camera_id: int, minutes: int = 60, db: Session = Depends(get_db)):
-#     df, classes = load_traffic_df(db, camera_id, hours=24, freq="1min")
 
-#     if df.empty or not classes:
-#         return {
-#             "camera_id": camera_id,
-#             "labels": [],
-#             "series": [],
-#             "message": "No data in last 24h",
-#         }
 
-#     tail = df.tail(minutes)
 
-#     labels = [idx.strftime("%H:%M") for idx in tail.index]
-#     series = []
-#     for c in classes:
-#         series.append(
-#             {
-#                 "name": c,
-#                 "data": [int(v) if pd.notna(v) else 0 for v in tail[c].tolist()],
-#             }
-#         )
 
-#     return {
-#         "camera_id": camera_id,
-#         "labels": labels,
-#         "series": series,
-#         "timezone": "Asia/Bangkok (UTC+7)",
-#     }
 
-@router.get("/charts/grouped-bar/{camera_id}")
-async def grouped_bar_chart(
-    camera_id: int,
-    minutes: int = 60,
-    db: Session = Depends(get_db),
-):
-    """
-    Grouped-bar chart cho từng loại xe, format tương tự /charts/time-series:
-    {
-        "camera_id": ...,
-        "points": [
-            {
-                "label": "HH:MM",
-                "values": {
-                    "car": ...,
-                    "motor": ...,
-                    "bus": ...,
-                    "truck": ...
-                }
-            },
-            ...
-        ],
-        "classes": ["car", "motor", ...],
-        "period": "60m",
-        "timezone": "Asia/Bangkok (UTC+7)"
-    }
-    """
-    # Dùng lại helper đọc DB + convert UTC -> UTC+7
-    df, classes = load_traffic_df(db, camera_id, hours=24, freq="1min")
-
-    if df.empty or not classes:
-        return JSONResponse(
-            {
-                "camera_id": camera_id,
-                "points": [],
-                "message": "No data in last 24h",
-            }
-        )
-
-    # Lấy minutes điểm cuối (giống time-series)
-    tail = df.tail(minutes)
-
-    points = []
-    for idx, row in tail.iterrows():
-        values = {}
-        for c in classes:
-            v = row.get(c, 0)
-            # đảm bảo là int
-            values[c] = int(v) if pd.notna(v) else 0
-
-        points.append(
-            {
-                "label": idx.strftime("%H:%M"),  # đã là giờ UTC+7 trong load_traffic_df
-                "values": values,
-            }
-        )
-
-    return JSONResponse(
-        {
-            "camera_id": camera_id,
-            "points": points,
-            "classes": classes,  # để frontend biết thứ tự / legend
-            "period": f"{minutes}m",
-            "timezone": "Asia/Bangkok (UTC+7)",
-        }
-    )
-
-
-@router.get("/charts/area/{camera_id}")
-async def area_chart(
-    camera_id: int,
-    minutes: int = 60,
-    db: Session = Depends(get_db),
-):
-    """
-    Area chart (stacked) cho từng loại xe, format gần giống /charts/time-series:
-
-    {
-      "camera_id": ...,
-      "points": [
-        {
-          "label": "HH:MM",
-          "values": {
-            "car": ...,
-            "motor": ...,
-            "bus": ...,
-            "truck": ...
-          }
-        },
-        ...
-      ],
-      "classes": ["car", "motor", ...],
-      "period": "60m",
-      "timezone": "Asia/Bangkok (UTC+7)",
-      "chart_type": "stacked_area"
-    }
-    """
-    df, classes = load_traffic_df(db, camera_id, hours=24, freq="1min")
-
-    if df.empty or not classes:
-        return JSONResponse(
-            {
-                "camera_id": camera_id,
-                "points": [],
-                "message": "No data in last 24h",
-            }
-        )
-
-    tail = df.tail(minutes)
-
-    points = []
-    for idx, row in tail.iterrows():
-        values = {}
-        for c in classes:
-            v = row.get(c, 0)
-            values[c] = int(v) if pd.notna(v) else 0
-
-        points.append(
-            {
-                "label": idx.strftime("%H:%M"),  # đã là UTC+7 trong load_traffic_df
-                "values": values,
-            }
-        )
-
-    return JSONResponse(
-        {
-            "camera_id": camera_id,
-            "points": points,
-            "classes": classes,
-            "period": f"{minutes}m",
-            "timezone": "Asia/Bangkok (UTC+7)",
-            "chart_type": "stacked_area",
-        }
-    )
-
-
-
-
-@router.get("/charts/hist-total/{camera_id}")
-async def hist_total(
-    camera_id: int,
-    bins: int = 20,
-    db: Session = Depends(get_db),
-):
-    """
-    Histogram tổng phương tiện trong 24h gần nhất.
-
-    Trả về dạng:
-    {
-      "camera_id": ...,
-      "points": [
-        { "label": "<bin_center>", "value": count },
-        ...
-      ],
-      "bins": 20,
-      "metric": "total_vehicles"
-    }
-    """
-    df, _ = load_traffic_df(db, camera_id, hours=24, freq="1min")
-
-    if df.empty or "total" not in df.columns:
-        return JSONResponse(
-            {
-                "camera_id": camera_id,
-                "points": [],
-                "bins": bins,
-                "message": "No data or 'total' column missing",
-            }
-        )
-
-    values = df["total"].dropna().astype(int).to_numpy()
-    if len(values) == 0:
-        return JSONResponse(
-            {
-                "camera_id": camera_id,
-                "points": [],
-                "bins": bins,
-                "message": "No total values",
-            }
-        )
-
-    counts, bin_edges = np.histogram(values, bins=bins)
-    bin_centers = ((bin_edges[:-1] + bin_edges[1:]) / 2.0)
-
-    # Chuẩn hoá về dạng points: [{label, value}]
-    points = [
-        {
-            "label": f"{center:.1f}",      # nhãn là mid-point của bin
-            "value": int(count),           # số lượng điểm rơi vào bin
-        }
-        for center, count in zip(bin_centers, counts)
-    ]
-
-    return JSONResponse(
-        {
-            "camera_id": camera_id,
-            "points": points,
-            "bins": bins,
-            "metric": "total_vehicles",
-        }
-    )
-
-
-
-@router.get("/charts/boxplot/{camera_id}")
-async def boxplot_chart(
-    camera_id: int,
-    db: Session = Depends(get_db),
-):
-    """
-    Boxplot cho từng loại xe trong 24h gần nhất.
-
-    Response:
-    {
-      "camera_id": ...,
-      "items": [
-        {
-          "name": "car",
-          "min": ...,
-          "q1": ...,
-          "median": ...,
-          "q3": ...,
-          "max": ...
-        },
-        ...
-      ],
-      "classes": ["car", "motor", ...],
-      "message": "...optional"
-    }
-    """
-    df, classes = load_traffic_df(db, camera_id, hours=24, freq="1min")
-
-    if df.empty or not classes:
-        return JSONResponse(
-            {
-                "camera_id": camera_id,
-                "items": [],
-                "classes": [],
-                "message": "No data in last 24h",
-            }
-        )
-
-    items = []
-    for c in classes:
-        s = df[c].dropna().astype(float)
-        if s.empty:
-            continue
-        desc = s.describe()  # count, mean, std, min, 25%, 50%, 75%, max
-        items.append(
-            {
-                "name": c,
-                "min": float(desc["min"]),
-                "q1": float(desc["25%"]),
-                "median": float(desc["50%"]),
-                "q3": float(desc["75%"]),
-                "max": float(desc["max"]),
-            }
-        )
-
-    return JSONResponse(
-        {
-            "camera_id": camera_id,
-            "items": items,
-            "classes": classes,
-        }
-    )
-
-
-@router.get("/charts/rolling-avg/{camera_id}")
-async def rolling_avg_chart(
-    camera_id: int,
-    minutes: int = 60,
-    window: int = 5,
-    db: Session = Depends(get_db),
-):
-    """
-    Rolling average cho từng loại xe trong 24h gần nhất.
-
-    Format:
-    {
-      "camera_id": ...,
-      "points": [
-        {
-          "label": "HH:MM",
-          "values": {
-            "car": ...,
-            "motor": ...,
-            "bus": ...,
-            "truck": ...
-          }
-        },
-        ...
-      ],
-      "classes": ["car", "motor", ...],
-      "window": 5,
-      "period": "60m",
-      "timezone": "Asia/Bangkok (UTC+7)"
-    }
-    """
-    df, classes = load_traffic_df(db, camera_id, hours=24, freq="1min")
-
-    if df.empty or not classes:
-        return JSONResponse(
-            {
-                "camera_id": camera_id,
-                "points": [],
-                "classes": [],
-                "window": window,
-                "message": "No data in last 24h",
-            }
-        )
-
-    # Tính rolling mean theo window
-    df_ra = df[classes].rolling(window=window).mean()
-    tail = df_ra.tail(minutes)
-
-    points = []
-    for idx, row in tail.iterrows():
-        values = {}
-        for c in classes:
-            v = row.get(c, None)
-            values[c] = float(v) if pd.notna(v) else 0.0
-
-        points.append(
-            {
-                "label": idx.strftime("%H:%M"),  # đã là giờ UTC+7 trong load_traffic_df
-                "values": values,
-            }
-        )
-
-    return JSONResponse(
-        {
-            "camera_id": camera_id,
-            "points": points,
-            "classes": classes,
-            "window": window,
-            "period": f"{minutes}m",
-            "timezone": "Asia/Bangkok (UTC+7)",
-        }
-    )
-
-
-@router.get("/charts/peaks/{camera_id}")
-async def peak_detection_chart(
-    camera_id: int,
-    minutes: int = 60,
-    db: Session = Depends(get_db),
-):
-    """
-    Peak detection cho tổng lưu lượng 'total' trong 24h gần nhất.
-
-    Response:
-    {
-      "camera_id": ...,
-      "points": [
-        {
-          "label": "HH:MM",
-          "value": 123,
-          "is_peak": true/false,
-          "timestamp": "2025-11-30T12:34:56+07:00"
-        },
-        ...
-      ],
-      "peaks": [
-        {
-          "label": "HH:MM",
-          "value": 200,
-          "timestamp": "..."
-        },
-        ...
-      ],
-      "period": "60m",
-      "timezone": "Asia/Bangkok (UTC+7)"
-    }
-    """
-    df, _ = load_traffic_df(db, camera_id, hours=24, freq="1min")
-
-    if df.empty or "total" not in df.columns:
-        return JSONResponse(
-            {
-                "camera_id": camera_id,
-                "points": [],
-                "peaks": [],
-                "message": "No data or 'total' missing",
-            }
-        )
-
-    # Nếu DB chưa có cột is_peak_auto, có thể tự tính như sau:
-    if "is_peak_auto" not in df.columns:
-        # ví dụ: peak = những điểm >= quantile 0.9
-        thr = df["total"].quantile(0.9)
-        df["is_peak_auto"] = df["total"] >= thr
-
-    tail = df.tail(minutes)
-
-    points = []
-    peaks = []
-
-    for idx, row in tail.iterrows():
-        val = int(row["total"]) if pd.notna(row["total"]) else 0
-        is_peak = bool(row.get("is_peak_auto", False))
-        ts_iso = idx.isoformat()
-
-        point = {
-            "label": idx.strftime("%H:%M"),  # đã là UTC+7 trong load_traffic_df
-            "value": val,
-            "is_peak": is_peak,
-            "timestamp": ts_iso,
-        }
-        points.append(point)
-
-        if is_peak:
-            peaks.append(
-                {
-                    "label": point["label"],
-                    "value": val,
-                    "timestamp": ts_iso,
-                }
-            )
-
-    return JSONResponse(
-        {
-            "camera_id": camera_id,
-            "points": points,
-            "peaks": peaks,
-            "period": f"{minutes}m",
-            "timezone": "Asia/Bangkok (UTC+7)",
-        }
-    )
-
-
-
-# @router.get("/charts/stacked-bar-pct/{camera_id}")
-# async def stacked_bar_pct_chart(
-#     camera_id: int,
-#     minutes: int = 60,
-#     db: Session = Depends(get_db),
-# ):
-#     """
-#     Stacked bar theo phần trăm từng loại xe theo thời gian.
-#     """
-#     # Nếu muốn giống plot gốc (mỗi cột = 5 phút) thì để freq="5min"
-#     df, classes = load_traffic_df(db, camera_id, hours=24, freq="5min")
-
-#     if df.empty or not classes:
-#         return JSONResponse(
-#             {
-#                 "camera_id": camera_id,
-#                 "points": [],
-#                 "classes": [],
-#                 "unit": "percent",
-#                 "message": "No data in last 24h",
-#             }
-#         )
-
-#     # Nếu chưa có *_pct thì tự tính
-#     pct_cols = [c + "_pct" for c in classes if (c + "_pct") in df.columns]
-#     if not pct_cols:
-#         sum_per_row = df[classes].sum(axis=1).replace(0, pd.NA)
-#         for c in classes:
-#             # ép float trước khi fillna để khỏi bị FutureWarning
-#             df[c + "_pct"] = (
-#                 df[c].astype("float64") * 100.0 / sum_per_row
-#             ).fillna(0.0)
-#         pct_cols = [c + "_pct" for c in classes]
-
-#     tail = df.tail(minutes)
-
-#     points = []
-#     for idx, row in tail.iterrows():
-#         values = {}
-#         for c in classes:
-#             col = c + "_pct"
-#             if col not in row:
-#                 continue
-#             v = row[col]
-#             values[c] = float(v) if pd.notna(v) else 0.0
-
-#         points.append(
-#             {
-#                 # chỉ gửi HH:MM, không gửi full timestamp
-#                 "label": idx.strftime("%H:%M"),
-#                 "values": values,
-#             }
-#         )
-
-#     return JSONResponse(
-#         {
-#             "camera_id": camera_id,
-#             "points": points,
-#             "classes": classes,
-#             "unit": "percent",
-#             "period": f"{minutes}m",
-#             "timezone": "Asia/Bangkok (UTC+7)",
-#         }
-#     )
-
-
-
-# ========================== BACKGROUND WORKER ==========================
+# BACKGROUND WORKER
 async def save_stats_to_db_worker():
-    print("💾 Background Worker: Đã kích hoạt chế độ ghi log giao thông...")
+    print("Background Worker: Đã kích hoạt chế độ ghi log giao thông...")
     while True:
         try:
             await asyncio.sleep(10)
@@ -658,22 +133,22 @@ async def save_stats_to_db_worker():
                         db.add(log)
                     db.commit()
                 except Exception as e:
-                    print(f"❌ Lỗi worker lưu DB: {e}")
+                    print(f"Lỗi worker lưu DB: {e}")
                     db.rollback() 
                 finally:
                     db.close()
         except Exception as e:
-            print(f"❌ Lỗi vòng lặp Worker: {e}")
+            print(f"Lỗi vòng lặp Worker: {e}")
             await asyncio.sleep(5) 
 
 # ========================== LIFECYCLE ==========================
 @router.on_event("startup")
 async def startup_event():
     if sys_state.manager is not None:
-        print("⚠️ Hệ thống Traffic AI ĐÃ ĐANG CHẠY.")
+        print("Hệ thống Traffic AI ĐÃ ĐANG CHẠY.")
         return
 
-    print("🚀 Đang khởi động hệ thống Traffic AI (Multiprocessing)...")
+    print("Đang khởi động hệ thống Traffic AI (Multiprocessing)...")
     try:
         sys_state.manager = Manager()
         sys_state.info_dict = sys_state.manager.dict()
@@ -681,7 +156,7 @@ async def startup_event():
         sys_state.result_queue = Queue()
 
         num_cameras = 2 
-        print(f"📹 Kích hoạt {num_cameras} cameras tối ưu...")
+        print(f"Kích hoạt {num_cameras} cameras tối ưu...")
 
         for i in range(num_cameras):
             p = Process(
@@ -690,22 +165,22 @@ async def startup_event():
             )
             p.start()
             sys_state.processes.append(p)
-            print(f"✅ Camera {i} started (PID: {p.pid})")
+            print(f"Camera {i} started (PID: {p.pid})")
             time.sleep(1)
             
         asyncio.create_task(save_stats_to_db_worker())
 
     except Exception as e:
-        print(f"❌ Lỗi khởi động: {e}")
+        print(f"Lỗi khởi động: {e}")
 
 @router.on_event("shutdown")
 async def shutdown_event():
-    print("🛑 Đang tắt hệ thống Traffic AI...")
+    print("Đang tắt hệ thống Traffic AI...")
     for p in sys_state.processes:
         if p.is_alive():
             p.terminate()
             p.join()
-    print("✅ Đã tắt toàn bộ processes.")
+    print("Đã tắt toàn bộ processes.")
 
 
 # ========================== API ENDPOINTS ==========================
@@ -790,8 +265,8 @@ async def get_time_series_data(camera_id: int, minutes: int = 60):
         # Lấy rộng 24h cho an toàn (đủ dữ liệu để resample + diff)
         time_threshold_utc = now_utc - timedelta(hours=24)
 
-        print(f"🔍 [DEBUG] Current Time UTC: {now_utc}")
-        print(f"🔍 [DEBUG] Threshold UTC:    {time_threshold_utc}")
+        print(f"[DEBUG] Current Time UTC: {now_utc}")
+        print(f"[DEBUG] Threshold UTC:    {time_threshold_utc}")
 
         query = (
             db.query(TrafficLog)
@@ -803,8 +278,7 @@ async def get_time_series_data(camera_id: int, minutes: int = 60):
         )
 
         df = pd.read_sql(query.statement, db.bind)
-        print(f"📊 [DEBUG] Found {len(df)} records in last 24h (UTC).")
-
+        print(f"[DEBUG] Found {len(df)} records in last 24h (UTC).")
         if df.empty:
             return JSONResponse(
                 {
@@ -819,8 +293,8 @@ async def get_time_series_data(camera_id: int, minutes: int = 60):
         df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
         df["timestamp"] = df["timestamp"].dt.tz_convert(tz_local)
 
-        print(f"🕒 [DEBUG] First record (local): {df['timestamp'].iloc[0]}")
-        print(f"🕒 [DEBUG] Last  record (local): {df['timestamp'].iloc[-1]}")
+        print(f"[DEBUG] First record (local): {df['timestamp'].iloc[0]}")
+        print(f"[DEBUG] Last  record (local): {df['timestamp'].iloc[-1]}")
 
         df.set_index("timestamp", inplace=True)
 
@@ -862,11 +336,316 @@ async def get_time_series_data(camera_id: int, minutes: int = 60):
         )
 
     except Exception as e:
-        print(f"❌ ERROR: {e}")
+        print(f"ERROR: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
     finally:
         db.close()
 
+@router.get("/charts/grouped-bar/{camera_id}")
+async def grouped_bar_chart(
+    camera_id: int,
+    minutes: int = 60,
+    db: Session = Depends(get_db),
+):
+    
+    # Dùng lại helper đọc DB + convert UTC -> UTC+7
+    df, classes = load_traffic_df(db, camera_id, hours=24, freq="1min")
+
+    if df.empty or not classes:
+        return JSONResponse(
+            {
+                "camera_id": camera_id,
+                "points": [],
+                "message": "No data in last 24h",
+            }
+        )
+
+    # Lấy minutes điểm cuối (giống time-series)
+    tail = df.tail(minutes)
+
+    points = []
+    for idx, row in tail.iterrows():
+        values = {}
+        for c in classes:
+            v = row.get(c, 0)
+            # đảm bảo là int
+            values[c] = int(v) if pd.notna(v) else 0
+
+        points.append(
+            {
+                "label": idx.strftime("%H:%M"),  # đã là giờ UTC+7 trong load_traffic_df
+                "values": values,
+            }
+        )
+
+    return JSONResponse(
+        {
+            "camera_id": camera_id,
+            "points": points,
+            "classes": classes,  # để frontend biết thứ tự / legend
+            "period": f"{minutes}m",
+            "timezone": "Asia/Bangkok (UTC+7)",
+        }
+    )
+
+
+@router.get("/charts/area/{camera_id}")
+async def area_chart(
+    camera_id: int,
+    minutes: int = 60,
+    db: Session = Depends(get_db),
+):
+    
+    df, classes = load_traffic_df(db, camera_id, hours=24, freq="1min")
+
+    if df.empty or not classes:
+        return JSONResponse(
+            {
+                "camera_id": camera_id,
+                "points": [],
+                "message": "No data in last 24h",
+            }
+        )
+
+    tail = df.tail(minutes)
+
+    points = []
+    for idx, row in tail.iterrows():
+        values = {}
+        for c in classes:
+            v = row.get(c, 0)
+            values[c] = int(v) if pd.notna(v) else 0
+
+        points.append(
+            {
+                "label": idx.strftime("%H:%M"),  
+                "values": values,
+            }
+        )
+
+    return JSONResponse(
+        {
+            "camera_id": camera_id,
+            "points": points,
+            "classes": classes,
+            "period": f"{minutes}m",
+            "timezone": "Asia/Bangkok (UTC+7)",
+            "chart_type": "stacked_area",
+        }
+    )
+
+
+
+
+@router.get("/charts/hist-total/{camera_id}")
+async def hist_total(
+    camera_id: int,
+    bins: int = 20,
+    db: Session = Depends(get_db),
+):
+   
+    df, _ = load_traffic_df(db, camera_id, hours=24, freq="1min")
+
+    if df.empty or "total" not in df.columns:
+        return JSONResponse(
+            {
+                "camera_id": camera_id,
+                "points": [],
+                "bins": bins,
+                "message": "No data or 'total' column missing",
+            }
+        )
+
+    values = df["total"].dropna().astype(int).to_numpy()
+    if len(values) == 0:
+        return JSONResponse(
+            {
+                "camera_id": camera_id,
+                "points": [],
+                "bins": bins,
+                "message": "No total values",
+            }
+        )
+
+    counts, bin_edges = np.histogram(values, bins=bins)
+    bin_centers = ((bin_edges[:-1] + bin_edges[1:]) / 2.0)
+
+    # Chuẩn hoá về dạng points: [{label, value}]
+    points = [
+        {
+            "label": f"{center:.1f}",      # nhãn là mid-point của bin
+            "value": int(count),           # số lượng điểm rơi vào bin
+        }
+        for center, count in zip(bin_centers, counts)
+    ]
+
+    return JSONResponse(
+        {
+            "camera_id": camera_id,
+            "points": points,
+            "bins": bins,
+            "metric": "total_vehicles",
+        }
+    )
+
+
+
+@router.get("/charts/boxplot/{camera_id}")
+async def boxplot_chart(
+    camera_id: int,
+    db: Session = Depends(get_db),
+):
+    
+    df, classes = load_traffic_df(db, camera_id, hours=24, freq="1min")
+
+    if df.empty or not classes:
+        return JSONResponse(
+            {
+                "camera_id": camera_id,
+                "items": [],
+                "classes": [],
+                "message": "No data in last 24h",
+            }
+        )
+
+    items = []
+    for c in classes:
+        s = df[c].dropna().astype(float)
+        if s.empty:
+            continue
+        desc = s.describe()  # count, mean, std, min, 25%, 50%, 75%, max
+        items.append(
+            {
+                "name": c,
+                "min": float(desc["min"]),
+                "q1": float(desc["25%"]),
+                "median": float(desc["50%"]),
+                "q3": float(desc["75%"]),
+                "max": float(desc["max"]),
+            }
+        )
+
+    return JSONResponse(
+        {
+            "camera_id": camera_id,
+            "items": items,
+            "classes": classes,
+        }
+    )
+
+
+@router.get("/charts/rolling-avg/{camera_id}")
+async def rolling_avg_chart(
+    camera_id: int,
+    minutes: int = 60,
+    window: int = 5,
+    db: Session = Depends(get_db),
+):
+   
+    df, classes = load_traffic_df(db, camera_id, hours=24, freq="1min")
+
+    if df.empty or not classes:
+        return JSONResponse(
+            {
+                "camera_id": camera_id,
+                "points": [],
+                "classes": [],
+                "window": window,
+                "message": "No data in last 24h",
+            }
+        )
+
+    # Tính rolling mean theo window
+    df_ra = df[classes].rolling(window=window).mean()
+    tail = df_ra.tail(minutes)
+
+    points = []
+    for idx, row in tail.iterrows():
+        values = {}
+        for c in classes:
+            v = row.get(c, None)
+            values[c] = float(v) if pd.notna(v) else 0.0
+
+        points.append(
+            {
+                "label": idx.strftime("%H:%M"),  # đã là giờ UTC+7 trong load_traffic_df
+                "values": values,
+            }
+        )
+
+    return JSONResponse(
+        {
+            "camera_id": camera_id,
+            "points": points,
+            "classes": classes,
+            "window": window,
+            "period": f"{minutes}m",
+            "timezone": "Asia/Bangkok (UTC+7)",
+        }
+    )
+
+
+@router.get("/charts/peaks/{camera_id}")
+async def peak_detection_chart(
+    camera_id: int,
+    minutes: int = 60,
+    db: Session = Depends(get_db),
+):
+    
+    df, _ = load_traffic_df(db, camera_id, hours=24, freq="1min")
+
+    if df.empty or "total" not in df.columns:
+        return JSONResponse(
+            {
+                "camera_id": camera_id,
+                "points": [],
+                "peaks": [],
+                "message": "No data or 'total' missing",
+            }
+        )
+
+    # Nếu DB chưa có cột is_peak_auto, có thể tự tính như sau:
+    if "is_peak_auto" not in df.columns:
+        # ví dụ: peak = những điểm >= quantile 0.9
+        thr = df["total"].quantile(0.9)
+        df["is_peak_auto"] = df["total"] >= thr
+
+    tail = df.tail(minutes)
+
+    points = []
+    peaks = []
+
+    for idx, row in tail.iterrows():
+        val = int(row["total"]) if pd.notna(row["total"]) else 0
+        is_peak = bool(row.get("is_peak_auto", False))
+        ts_iso = idx.isoformat()
+
+        point = {
+            "label": idx.strftime("%H:%M"),  # đã là UTC+7 trong load_traffic_df
+            "value": val,
+            "is_peak": is_peak,
+            "timestamp": ts_iso,
+        }
+        points.append(point)
+
+        if is_peak:
+            peaks.append(
+                {
+                    "label": point["label"],
+                    "value": val,
+                    "timestamp": ts_iso,
+                }
+            )
+
+    return JSONResponse(
+        {
+            "camera_id": camera_id,
+            "points": points,
+            "peaks": peaks,
+            "period": f"{minutes}m",
+            "timezone": "Asia/Bangkok (UTC+7)",
+        }
+    )
 
 
 # ========================== WEBSOCKETS ==========================

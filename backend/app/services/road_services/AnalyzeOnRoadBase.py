@@ -8,7 +8,6 @@ import traceback
 import time
 from app.core.config import settings_metric_transport
 import os
-# ✅ Import Database
 from app.db.base import SessionLocal
 from app.models.traffic_logs import TrafficLog
 
@@ -40,17 +39,14 @@ class AnalyzeOnRoadBase:
         self.show = show
         self.count_conf = count_conf
 
-        # ===== 🚀 CẤU HÌNH CHẤT LƯỢNG (Đã Nâng Cấp) =====
-        self.skip_frames = 3       # Giữ nguyên 3 để cân bằng tải
+        self.skip_frames = 3     
         
-        # Tăng kích thước xử lý (Trước là 480x270 -> Mờ)
-        # 854x480 là chuẩn 480p (Widescreen), đủ nét để đọc biển số gần
         self.process_width = 854   
         self.process_height = 480  
         
         self.last_result = None
         
-        # ===== Auto Save =====
+        #Auto Save
         self.auto_save = auto_save
         self.save_interval_seconds = save_interval_seconds
         self.last_save_time = datetime.now()
@@ -60,16 +56,14 @@ class AnalyzeOnRoadBase:
         self.logs_dir.mkdir(parents=True, exist_ok=True)
 
         self.current_day = datetime.now().date()
-
-        # ===== Model Loading =====
         try:
             self.model = YOLO(self.model_path)
-            print(f"[Camera {video_index}] ✅ Model loaded")
+            print(f"[Camera {video_index}] Model loaded")
         except Exception as e:
-            print(f"[Camera {video_index}] ❌ Model load failed: {e}")
+            print(f"[Camera {video_index}] Model load failed: {e}")
             raise
 
-        # ===== Tracking State =====
+        # Tracking State
         self.tracked_objects = {}
         self.counted_ids = {}
         self.count_entering = {}
@@ -183,7 +177,7 @@ class AnalyzeOnRoadBase:
             db.commit()
             self.last_save_time = now
         except Exception as e:
-            print(f"[Cam {self.video_index}] ❌ Error saving DB: {e}")
+            print(f"[Cam {self.video_index}] Error saving DB: {e}")
             db.rollback()
         finally:
             db.close()
@@ -218,14 +212,13 @@ class AnalyzeOnRoadBase:
             cookie_path = Path("cookies.txt")
 
         if cookie_path.exists():
-            print(f"[Camera {self.video_index}] 🍪 Đã tìm thấy Cookies tại: {cookie_path}")
+            print(f"[Camera {self.video_index}] Đã tìm thấy Cookies tại: {cookie_path}")
         else:
-            print(f"[Camera {self.video_index}] ⚠️ CẢNH BÁO: Không tìm thấy cookies.txt")
+            print(f"[Camera {self.video_index}] CẢNH BÁO: Không tìm thấy cookies.txt")
 
         ydl_opts = {
             "quiet": True, 
             "no_warnings": True,
-            # 🔥 NÂNG CẤP: Lấy video tốt nhất <= 720p (Nét hơn 360p rất nhiều)
             "format": "best[height<=720]", 
             "nocheckcertificate": True,
             "cookiefile": str(cookie_path) if cookie_path.exists() else None,
@@ -239,12 +232,12 @@ class AnalyzeOnRoadBase:
                 if info and "url" in info: 
                     return info["url"]
         except Exception as e:
-            print(f"[Camera {self.video_index}] ❌ Lỗi lấy link: {e}")
+            print(f"[Camera {self.video_index}] Lỗi lấy link: {e}")
             
         return youtube_url
 
     def process_video(self):
-        print(f"[Camera {self.video_index}] 🎬 START MONITORING (720p Input, 480p Process)")
+        print(f"[Camera {self.video_index}] START MONITORING (720p Input, 480p Process)")
         while self.is_running:
             try:
                 stream_url = self.get_stream_url(self.path_video)
@@ -256,18 +249,16 @@ class AnalyzeOnRoadBase:
                     time.sleep(3)
                     continue
                 
-                print(f"[Cam {self.video_index}] ✅ Connected!")
+                print(f"[Cam {self.video_index}] Connected!")
 
                 while self.is_running:
                     t0 = datetime.now()
                     ok, frame = cam.read()
                     if not ok: break 
-
-                    # 🔥 NÂNG CẤP: Resize to hơn (854x480) để nhìn rõ hơn
                     frame = cv2.resize(frame, (self.process_width, self.process_height))
                     plotted = self.process_single_frame(frame)
 
-                    # 🔥 NÂNG CẤP: Gửi ảnh API với chất lượng 65% (Đẹp hơn mức 30 cũ)
+                    # Gửi ảnh API với chất lượng 65%
                     if self.frame_dict is not None:
                         try:
                             _, buffer = cv2.imencode('.jpg', plotted, [cv2.IMWRITE_JPEG_QUALITY, 65])

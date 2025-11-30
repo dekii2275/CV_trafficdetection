@@ -2,8 +2,6 @@
 Script để build vector database từ các file luật giao thông.
 Đã sửa lỗi Import LangChain và lỗi tham số dòng lệnh.
 
-Usage:
-    python3 app/utils/build_vectordatabase.py --reset
 """
 
 import sys
@@ -12,33 +10,26 @@ import re
 import shutil
 from typing import List
 from pathlib import Path
-import docx  # Yêu cầu: pip install python-docx
+import docx  
 
-# --- 1. SỬA LỖI IMPORT LANGCHAIN ---
-# Tự động detect phiên bản LangChain để import đúng
 try:
-    # Dành cho phiên bản LangChain mới (v0.1+)
+    
     from langchain_core.documents import Document
 except ImportError:
     try:
-        # Dành cho phiên bản cũ hơn
         from langchain.schema import Document
     except ImportError:
-        # Fallback cuối cùng
         from langchain.docstore.document import Document
 
-# --- 2. CẤU HÌNH ĐƯỜNG DẪN TUYỆT ĐỐI ---
-# Lấy vị trí thực tế của file này
+
 FILE_PATH = Path(__file__).resolve()
-# Cấu trúc thư mục: .../CV_trafficdetection/backend/app/utils/build_vectordatabase.py
-# Parents: [0]=utils, [1]=app, [2]=backend, [3]=CV_trafficdetection (Project Root)
+
 PROJECT_ROOT = FILE_PATH.parents[3] 
 BACKEND_ROOT = FILE_PATH.parents[2] 
 
-# Thêm backend vào sys.path để Python tìm thấy các module nội bộ (như app.services...)
+
 sys.path.append(str(BACKEND_ROOT))
 
-# Định nghĩa đường dẫn Data (Tuyệt đối)
 ABS_DOCS_DIR = PROJECT_ROOT / "data" / "law_documents"
 ABS_DB_DIR = PROJECT_ROOT / "data" / "chroma_db"
 
@@ -46,13 +37,11 @@ ABS_DB_DIR = PROJECT_ROOT / "data" / "chroma_db"
 try:
     from app.services.rag_services.vector_store import VectorStoreService
 except ImportError as e:
-    print(f"❌ Lỗi Import Service: {e}")
-    print(f"👉 Đảm bảo bạn đang đứng ở thư mục 'backend' và file vector_store.py tồn tại.")
+    print(f"Lỗi Import Service: {e}")
+    print(f"Đảm bảo bạn đang đứng ở thư mục 'backend' và file vector_store.py tồn tại.")
     sys.exit(1)
 
-# ============================================================
-# 3. CLASS XỬ LÝ VĂN BẢN LUẬT (LOGIC CHIA NHỎ)
-# ============================================================
+
 class TrafficLawProcessor:
     """
     Xử lý văn bản luật: Tách Điều -> Khoản -> Điểm để tránh mất thông tin
@@ -76,7 +65,7 @@ class TrafficLawProcessor:
                     full_text.append(txt)
             return "\n".join(full_text)
         except Exception as e:
-            print(f"❌ Lỗi đọc file {file_path}: {e}")
+            print(f"Lỗi đọc file {file_path}: {e}")
             return ""
 
     def identify_vehicle_type(self, text: str) -> str:
@@ -95,7 +84,7 @@ class TrafficLawProcessor:
         chunks = []
         source_name = Path(file_path).name
         
-        # B1: Tách các Điều (Articles)
+        # B1: Tách các Điều
         articles = re.finditer(self.article_pattern, text, re.DOTALL)
         
         for art_match in articles:
@@ -165,26 +154,23 @@ class TrafficLawProcessor:
                 
         return chunks
 
-# ============================================================
-# 4. HÀM CHÍNH: BUILD DATABASE
-# ============================================================
 def build_vector_database(documents_dir: str = str(ABS_DOCS_DIR), reset: bool = False):
     print("\n" + "="*60)
-    print("🚀 RAG BUILDER: SMART CHUNKING (Luật Giao Thông)")
+    print("RAG BUILDER: SMART CHUNKING (Luật Giao Thông)")
     print("="*60)
-    print(f"📂 Đọc tài liệu từ: {documents_dir}")
-    print(f"📂 Lưu Database tại: {ABS_DB_DIR}")
+    print(f"Đọc tài liệu từ: {documents_dir}")
+    print(f"Lưu Database tại: {ABS_DB_DIR}")
     
     # Xử lý tham số Reset
     if reset:
         if ABS_DB_DIR.exists():
-            print(f"🗑️  Đang xóa database cũ để làm sạch dữ liệu...")
+            print(f"Đang xóa database cũ để làm sạch dữ liệu...")
             shutil.rmtree(ABS_DB_DIR)
         else:
-            print("⚠️  Không tìm thấy database cũ, sẽ tạo mới hoàn toàn.")
+            print("Không tìm thấy database cũ, sẽ tạo mới hoàn toàn.")
     
     # Init Vector Store
-    print(f"📦 Đang khởi tạo Vector Store...")
+    print("Đang khởi tạo Vector Store...")
     vector_store = VectorStoreService(
         collection_name="traffic_laws",
         persist_directory=str(ABS_DB_DIR)
@@ -195,39 +181,39 @@ def build_vector_database(documents_dir: str = str(ABS_DOCS_DIR), reset: bool = 
     all_documents = []
     
     if not os.path.exists(documents_dir):
-        print(f"❌ LỖI: Thư mục tài liệu không tồn tại: {documents_dir}")
-        print(f"👉 Vui lòng tạo thư mục này và copy file .docx vào đó.")
+        print(f"LỖI: Thư mục tài liệu không tồn tại: {documents_dir}")
+        print(f"Vui lòng tạo thư mục này và copy file .docx vào đó.")
         return
 
     files = [f for f in os.listdir(documents_dir) if f.endswith(".docx") or f.endswith(".doc")]
     if not files:
-        print(f"⚠️  CẢNH BÁO: Thư mục {documents_dir} trống! Hãy copy file luật vào.")
+        print(f"CẢNH BÁO: Thư mục {documents_dir} trống! Hãy copy file luật vào.")
         return
 
     for filename in files:
         file_path = os.path.join(documents_dir, filename)
-        print(f"\n📄 Đang xử lý file: {filename}...")
+        print(f"\nĐang xử lý file: {filename}...")
         
         chunks = processor.process_document(file_path)
         all_documents.extend(chunks)
         print(f"   -> Tạo được {len(chunks)} chunks dữ liệu.")
 
     if not all_documents:
-        print("⚠️ Không tạo được dữ liệu nào. Kiểm tra lại nội dung file input.")
+        print(" Không tạo được dữ liệu nào. Kiểm tra lại nội dung file input.")
         return
 
     # Lưu vào ChromaDB
-    print(f"\n💾 Đang lưu {len(all_documents)} chunks vào Database (Quá trình này có thể mất vài phút)...")
+    print(f"\n Đang lưu {len(all_documents)} chunks vào Database (Quá trình này có thể mất vài phút)...")
     
     texts = [doc.page_content for doc in all_documents]
     metadatas = [doc.metadata for doc in all_documents]
     
     vector_store.add_documents(documents=texts, metadatas=metadatas)
-    print("\n✅ XÂY DỰNG DATABASE THÀNH CÔNG!")
+    print("\nXÂY DỰNG DATABASE THÀNH CÔNG!")
 
-# ============================================================
+
 # 5. HÀM TEST TRUY VẤN
-# ============================================================
+
 def test_search(query: str):
     print("\n" + "="*60)
     print(f"🧪 TEST TRUY VẤN THỬ: \"{query}\"")

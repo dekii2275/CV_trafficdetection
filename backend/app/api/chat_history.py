@@ -17,9 +17,9 @@ from app.db.base import get_db
 router = APIRouter()
 
 
-# ---------------------------------------------------------------------
+
 # 1) CREATE MESSAGE với Session ID
-# ---------------------------------------------------------------------
+
 @router.post(
     "/messages",
     response_model=ChatMessageResponse,
@@ -55,9 +55,9 @@ async def create_chat_message(
     return new_message
 
 
-# ---------------------------------------------------------------------
+
 # 2) GET CHAT HISTORY theo Session
-# ---------------------------------------------------------------------
+
 @router.get(
     "/messages",
     response_model=List[ChatMessageListResponse],
@@ -104,9 +104,9 @@ async def get_chat_history(
     ]
 
 
-# ---------------------------------------------------------------------
+
 # 3) GET CONVERSATION CONTEXT (cho RAG)
-# ---------------------------------------------------------------------
+
 @router.get(
     "/messages/context/{session_id}",
     summary="Lấy context hội thoại cho RAG",
@@ -151,9 +151,9 @@ async def get_conversation_context(
     }
 
 
-# ---------------------------------------------------------------------
+
 # 4) LIST ALL SESSIONS
-# ---------------------------------------------------------------------
+
 @router.get(
     "/sessions",
     summary="Lấy danh sách tất cả sessions",
@@ -201,9 +201,9 @@ async def list_sessions(
     }
 
 
-# ---------------------------------------------------------------------
+
 # 5) DELETE SESSION
-# ---------------------------------------------------------------------
+
 @router.delete(
     "/sessions/{session_id}",
     status_code=204,
@@ -227,9 +227,9 @@ async def delete_session(
     return None
 
 
-# ---------------------------------------------------------------------
-# 6) DELETE OLD SESSIONS (Cleanup job)
-# ---------------------------------------------------------------------
+
+# 6) DELETE OLD SESSIONS
+
 @router.delete(
     "/sessions/cleanup",
     summary="Xóa sessions cũ (>30 ngày)",
@@ -272,9 +272,9 @@ async def cleanup_old_sessions(
     }
 
 
-# ---------------------------------------------------------------------
+
 # 7) GET SESSION STATISTICS
-# ---------------------------------------------------------------------
+
 @router.get(
     "/statistics",
     summary="Thống kê sử dụng chatbot",
@@ -314,9 +314,9 @@ async def get_statistics(
     }
 
 
-# ---------------------------------------------------------------------
+
 # 8) DELETE ONE MESSAGE
-# ---------------------------------------------------------------------
+
 @router.delete(
     "/messages/{message_id}",
     status_code=204,

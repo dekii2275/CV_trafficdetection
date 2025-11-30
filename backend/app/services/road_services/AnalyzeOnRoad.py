@@ -1,11 +1,8 @@
 from datetime import datetime
 import traceback
-# Import class từ file Base vừa tạo ở trên
 from app.services.road_services.AnalyzeOnRoadBase import AnalyzeOnRoadBase
 
-# ============================================================
-# RUN FUNCTION (Được gọi bởi Process trong api_vehicles.py)
-# ============================================================
+
 
 def run_analyzer(video_index, shared_dict, result_queue, frame_dict=None, show_window=False):
     """
@@ -42,7 +39,7 @@ def run_analyzer(video_index, shared_dict, result_queue, frame_dict=None, show_w
             })
         
     except Exception as e:
-        print(f"[Camera {video_index}] 💥 CRASH: {e}")
+        print(f"[Camera {video_index}] CRASH: {e}")
         traceback.print_exc()
         if result_queue:
             result_queue.put({

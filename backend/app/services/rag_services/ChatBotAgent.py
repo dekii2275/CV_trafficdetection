@@ -24,7 +24,7 @@ class ChatBotAgent:
         # Load API key từ environment
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            raise ValueError("❌ GEMINI_API_KEY không được thiết lập trong environment variables")
+            raise ValueError("GEMINI_API_KEY không được thiết lập trong environment variables")
         
         # Configure Gemini
         genai.configure(api_key=api_key)
@@ -35,22 +35,23 @@ class ChatBotAgent:
         self.vector_store = get_vector_store()
         
         # System prompt
-        self.system_prompt = """Bạn là một chuyên gia tư vấn luật giao thông Việt Nam.
+        self.system_prompt = """
+        Bạn là một chuyên gia tư vấn luật giao thông Việt Nam.
 
-NHIỆM VỤ:
-- Trả lời chính xác các câu hỏi về luật giao thông dựa trên thông tin được cung cấp
-- Trích dẫn rõ ràng điều luật, khoản, điểm liên quan
-- Giải thích dễ hiểu cho người dân
-- Nếu không có thông tin trong tài liệu, hãy nói rõ "Tôi không tìm thấy thông tin này trong các văn bản luật hiện có"
+        NHIỆM VỤ:
+        - Trả lời chính xác các câu hỏi về luật giao thông dựa trên thông tin được cung cấp
+        - Trích dẫn rõ ràng điều luật, khoản, điểm liên quan
+        - Giải thích dễ hiểu cho người dân
+        - Nếu không có thông tin trong tài liệu, hãy nói rõ "Tôi không tìm thấy thông tin này trong các văn bản luật hiện có"
 
-QUY TẮC:
-1. Luôn trích dẫn nguồn: "Theo Điều X Luật Y/Z/QH..."
-2. Ưu tiên luật mới nhất nếu có nhiều văn bản
-3. Cảnh báo nếu có thay đổi luật gần đây
-4. Đưa ra ví dụ cụ thể khi có thể
-5. Không bịa đặt thông tin"""
+        QUY TẮC:
+        1. Luôn trích dẫn nguồn: "Theo Điều X Luật Y/Z/QH..."
+        2. Ưu tiên luật mới nhất nếu có nhiều văn bản
+        3. Cảnh báo nếu có thay đổi luật gần đây
+        4. Đưa ra ví dụ cụ thể khi có thể
+        5. Không bịa đặt thông tin"""
         
-        print("✅ ChatBotAgent initialized successfully")
+        print("ChatBotAgent initialized successfully")
     
     async def get_response(
         self,
@@ -59,25 +60,9 @@ QUY TẮC:
         conversation_history: Optional[List[Dict]] = None,
         top_k: int = 5
     ) -> Dict:
-        """
-        Xử lý câu hỏi và trả về câu trả lời RAG
-        
-        Args:
-            message: Câu hỏi của user
-            session_id: Session ID để tracking
-            conversation_history: Lịch sử hội thoại
-            top_k: Số lượng documents liên quan cần retrieve
-        
-        Returns:
-            {
-                "message": "Câu trả lời",
-                "sources": [{"law": "...", "article": "..."}],
-                "image": None
-            }
-        """
         try:
             # BƯỚC 1: Retrieve relevant documents
-            print(f"🔍 Searching for relevant laws: '{message}'")
+            print(f"Searching for relevant laws: '{message}'")
             search_results = self.vector_store.search(
                 query=message,
                 top_k=top_k
@@ -92,18 +77,19 @@ QUY TẮC:
             # BƯỚC 4: Tạo prompt với context
             full_prompt = f"""{self.system_prompt}
 
-THÔNG TIN LUẬT LIÊN QUAN:
-{context}
+            THÔNG TIN LUẬT LIÊN QUAN:
+            {context}
 
-LỊCH SỬ HỘI THOẠI:
-{history_text}
+            LỊCH SỬ HỘI THOẠI:
+            {history_text}
 
-CÂU HỎI: {message}
+            CÂU HỎI: {message}
 
-TRẢ LỜI:"""
+            TRẢ LỜI:
+            """
             
             # BƯỚC 5: Generate response từ Gemini
-            print("🤖 Generating response with Gemini...")
+            print("Generating response with Gemini...")
             response = await self._generate_with_gemini(full_prompt)
             
             # BƯỚC 6: Extract sources để trả về
@@ -117,7 +103,7 @@ TRẢ LỜI:"""
             }
             
         except Exception as e:
-            print(f"❌ Error in get_response: {e}")
+            print(f"Error in get_response: {e}")
             return {
                 "message": f"Xin lỗi, đã xảy ra lỗi khi xử lý câu hỏi của bạn: {str(e)}",
                 "sources": [],
@@ -136,7 +122,7 @@ TRẢ LỜI:"""
             )
             return response.text
         except Exception as e:
-            print(f"❌ Gemini API error: {e}")
+            print(f"Gemini API error: {e}")
             raise
     
     async def stream_response(
@@ -157,15 +143,16 @@ TRẢ LỜI:"""
             
             full_prompt = f"""{self.system_prompt}
 
-THÔNG TIN LUẬT LIÊN QUAN:
-{context}
+                THÔNG TIN LUẬT LIÊN QUAN:
+                {context}
 
-LỊCH SỬ HỘI THOẠI:
-{history_text}
+                LỊCH SỬ HỘI THOẠI:
+                {history_text}
 
-CÂU HỎI: {message}
+                CÂU HỎI: {message}
 
-TRẢ LỜI:"""
+                TRẢ LỜI:
+                """
             
             # Stream từ Gemini
             response = await asyncio.to_thread(
@@ -179,7 +166,7 @@ TRẢ LỜI:"""
                     yield chunk.text
                     
         except Exception as e:
-            yield f"❌ Lỗi: {str(e)}"
+            yield f"Lỗi: {str(e)}"
     
     def _format_context(self, search_results: List[Dict]) -> str:
         """
@@ -195,12 +182,12 @@ TRẢ LỜI:"""
             similarity = result['similarity_score']
             
             context_parts.append(f"""
-[Tài liệu {i}] - Độ liên quan: {similarity:.2%}
-Nguồn: {metadata.get('law_name', 'N/A')} - Điều {metadata.get('article_number', 'N/A')}
-Tiêu đề: {metadata.get('article_title', 'N/A')}
-Nội dung:
-{doc_text}
----""")
+                [Tài liệu {i}] - Độ liên quan: {similarity:.2%}
+                Nguồn: {metadata.get('law_name', 'N/A')} - Điều {metadata.get('article_number', 'N/A')}
+                Tiêu đề: {metadata.get('article_title', 'N/A')}
+                Nội dung:
+                {doc_text}
+                ---""")
         
         return "\n".join(context_parts)
     

@@ -17,40 +17,30 @@ class VectorStoreService:
     def __init__(
         self,
         collection_name: str = "traffic_laws",
-        # Chúng ta sẽ tính toán đường dẫn tuyệt đối bên trong, không tin tưởng tham số truyền vào
         persist_directory: str = None, 
         embedding_model: str = "keepitreal/vietnamese-sbert"
     ):
         self.collection_name = collection_name
         
-        # --- FIX QUAN TRỌNG: Tự động lấy đường dẫn tuyệt đối ---
-        # 1. Xác định vị trí file vector_store.py hiện tại
         current_file_path = Path(__file__).resolve()
-        
-        # 2. Lùi ra 4 cấp để về thư mục gốc dự án (app -> services -> rag_services -> file này)
-        # Tùy cấu trúc folder của bạn, đoạn này sẽ tìm về thư mục chứa folder 'data'
-        # Giả sử file này nằm ở: .../CV_trafficdetection/backend/app/services/rag_services/vector_store.py
         project_root = current_file_path.parent.parent.parent.parent.parent
         
-        # 3. Tạo đường dẫn tuyệt đối đến data/chroma_db
         if persist_directory is None:
-            # Nếu chạy uvicorn ở trong backend, ta cần trỏ ra ngoài hoặc vào đúng chỗ
-            # Cách an toàn nhất: Tạo folder data ngay tại project root
+            
             self.persist_directory = os.path.join(str(project_root), "data", "chroma_db")
         else:
             self.persist_directory = persist_directory
 
-        print(f"📂 Vector DB Absolute Path: {self.persist_directory}")
+        print(f"Vector DB Absolute Path: {self.persist_directory}")
         
-        # Tạo thư mục nếu chưa tồn tại
+        
         Path(self.persist_directory).mkdir(parents=True, exist_ok=True)
         
-        # --- FIX QUAN TRỌNG: Dùng PersistentClient ---
-        # PersistentClient bắt buộc ghi dữ liệu xuống đĩa cứng
+        
         try:
             self.client = chromadb.PersistentClient(path=self.persist_directory)
         except Exception as e:
-            print(f"⚠️ Lỗi khởi tạo ChromaDB: {e}")
+            print(f"Lỗi khởi tạo ChromaDB: {e}")
             raise e
         
         # Khởi tạo hoặc lấy collection
@@ -59,18 +49,18 @@ class VectorStoreService:
                 name=collection_name,
                 metadata={"description": "Vietnamese traffic law embeddings"}
             )
-            print(f"✅ Collection ready: {collection_name} (Docs: {self.collection.count()})")
+            print(f"Collection ready: {collection_name} (Docs: {self.collection.count()})")
         except Exception as e:
-            print(f"❌ Error getting collection: {e}")
+            print(f"Error getting collection: {e}")
             raise e
         
         # Load embedding model
-        print(f"🔄 Loading embedding model: {embedding_model}")
+        print(f"Loading embedding model: {embedding_model}")
         try:
             self.embedding_model = SentenceTransformer(embedding_model)
-            print("✅ Embedding model loaded successfully")
+            print("Embedding model loaded successfully")
         except Exception as e:
-            print(f"❌ Failed to load embedding model: {e}")
+            print(f"Failed to load embedding model: {e}")
             raise e
     
     def add_documents(
@@ -82,7 +72,7 @@ class VectorStoreService:
         if not documents:
             return
         
-        print(f"🔄 Creating embeddings for {len(documents)} documents...")
+        print(f"Creating embeddings for {len(documents)} documents...")
         embeddings = self.embedding_model.encode(
             documents,
             show_progress_bar=True,
@@ -98,7 +88,7 @@ class VectorStoreService:
             metadatas=metadatas,
             ids=ids
         )
-        print(f"✅ Added {len(documents)} documents. Total now: {self.collection.count()}")
+        print(f"Added {len(documents)} documents. Total now: {self.collection.count()}")
     
     def search(
         self,
@@ -133,7 +123,7 @@ class VectorStoreService:
     def delete_collection(self) -> None:
         try:
             self.client.delete_collection(name=self.collection_name)
-            print(f"🗑️ Deleted collection: {self.collection_name}")
+            print(f"Deleted collection: {self.collection_name}")
         except:
             pass
     
@@ -150,7 +140,7 @@ class VectorStoreService:
             name=self.collection_name,
             metadata={"description": "Vietnamese traffic law embeddings"}
         )
-        print(f"🔄 Reset collection: {self.collection_name}")
+        print(f"Reset collection: {self.collection_name}")
 
 
 # Singleton instance

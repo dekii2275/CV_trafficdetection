@@ -34,7 +34,7 @@ class DocumentProcessor:
                     full_text.append(para.text)
             return "\n".join(full_text)
         except Exception as e:
-            print(f"❌ Error reading {file_path}: {e}")
+            print(f"Error reading {file_path}: {e}")
             return ""
     
     def extract_law_sections(self, text: str) -> List[Dict[str, str]]:
@@ -116,16 +116,16 @@ class DocumentProcessor:
         documents_path = Path(documents_dir)
         
         if not documents_path.exists():
-            print(f"⚠️ Documents directory not found: {documents_dir}")
+            print(f"Documents directory not found: {documents_dir}")
             return documents, metadatas
         
         # Xử lý từng file .doc/.docx
         law_files = list(documents_path.glob("*.doc")) + list(documents_path.glob("*.docx"))
         
-        print(f"📄 Found {len(law_files)} law documents")
+        print(f"Found {len(law_files)} law documents")
         
         for law_file in law_files:
-            print(f"🔄 Processing: {law_file.name}")
+            print(f"Processing: {law_file.name}")
             
             # Đọc nội dung
             full_text = self.read_docx(str(law_file))
@@ -157,7 +157,7 @@ class DocumentProcessor:
                     })
                     doc_id += 1
         
-        print(f"✅ Processed {len(documents)} chunks from {len(law_files)} documents")
+        print(f"Processed {len(documents)} chunks from {len(law_files)} documents")
         
         return documents, metadatas
     
@@ -206,7 +206,7 @@ if __name__ == "__main__":
     processor = DocumentProcessor()
     documents, metadatas = processor.process_law_documents()
     
-    print(f"\n📊 Statistics:")
+    print(f"\nStatistics:")
     print(f"Total chunks: {len(documents)}")
     print(f"\nSample chunk:")
     print(documents[0][:200] + "...")

@@ -3,21 +3,17 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 import uuid
 from typing import List, Dict
-
-# Import Schemas
 from app.schemas.ChatRequest import ChatRequest
 from app.schemas.ChatResponse import ChatResponse
 
-# Import Services
 from app.services.rag_services.ChatBotAgent import get_agent
 
-# Import Database & Models
 from app.db.base import SessionLocal
-from app.models.chat_message import ChatMessage # Đảm bảo bạn đã tạo file này ở bước trước
+from app.models.chat_message import ChatMessage
 
 router = APIRouter()
 
-# --- HELPER FUNCTIONS (Xử lý Database) ---
+# --- Xử lý Database ---
 
 def get_db_history(session_id: str, limit: int = 10) -> List[Dict]:
     """
@@ -41,7 +37,7 @@ def get_db_history(session_id: str, limit: int = 10) -> List[Dict]:
             })
         return history
     except Exception as e:
-        print(f"⚠️ Lỗi lấy lịch sử DB: {e}")
+        print(f"Lỗi lấy lịch sử DB: {e}")
         return []
     finally:
         db.close()
@@ -56,13 +52,13 @@ def save_to_db(session_id: str, role: str, content: str, sources: list = None, i
             session_id=session_id,
             role=role,
             content=content,
-            sources=sources, # Lưu nguồn trích dẫn (cho câu trả lời của AI)
-            images=images    # Lưu ảnh (nếu có)
+            sources=sources, 
+            images=images   
         )
         db.add(new_msg)
         db.commit()
     except Exception as e:
-        print(f"❌ Lỗi lưu DB: {e}")
+        print(f"Lỗi lưu DB: {e}")
         db.rollback()
     finally:
         db.close()
@@ -72,13 +68,13 @@ def save_to_db(session_id: str, role: str, content: str, sources: list = None, i
 @router.on_event("startup")
 async def start_up():
     """Khởi tạo RAG Agent"""
-    print("🚀 Initializing RAG Chat Agent...")
+    print("Initializing RAG Chat Agent...")
     try:
         agent = get_agent()
         stats = agent.get_stats()
-        print(f"✅ RAG Agent initialized. Vector DB: {stats['total_documents']} docs")
+        print(f"RAG Agent initialized. Vector DB: {stats['total_documents']} docs")
     except Exception as e:
-        print(f"❌ Failed to initialize RAG Agent: {e}")
+        print(f"Failed to initialize RAG Agent: {e}")
 
 
 @router.post(
@@ -123,7 +119,7 @@ async def chat(request: ChatRequest):
         )
         
     except Exception as e:
-        print(f"❌ Error in chat endpoint: {e}")
+        print(f"Error in chat endpoint: {e}")
         raise HTTPException(status_code=500, detail=f"Lỗi: {str(e)}")
 
 
@@ -136,7 +132,7 @@ async def websocket_chat(websocket: WebSocket):
     # Tạo session mới cho mỗi kết nối WS (hoặc nhận từ client nếu cần)
     session_id = str(uuid.uuid4())
     
-    print(f"✅ WS Connected: {session_id}")
+    print(f"WS Connected: {session_id}")
     
     try:
         await websocket.send_json({"type": "session_init", "session_id": session_id})
@@ -182,13 +178,13 @@ async def websocket_chat(websocket: WebSocket):
                 })
                 
             except Exception as e:
-                print(f"❌ Error processing: {e}")
+                print(f"Error processing: {e}")
                 await websocket.send_json({"type": "error", "message": str(e)})
     
     except WebSocketDisconnect:
-        print(f"🔌 WS Disconnected: {session_id}")
+        print(f"WS Disconnected: {session_id}")
     except Exception as e:
-        print(f"❌ WS Error: {e}")
+        print(f"WS Error: {e}")
     finally:
         try:
             await websocket.close()
