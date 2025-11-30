@@ -6,7 +6,7 @@ import matplotlib.dates as mdates
 from load_data import DEFAULT_CLASSES
 from analyze import analyze_pipeline_realtime
 
-def interactive_loop(stats_path, classes, interval=30, agg_freq="1T", minutes_window=10):
+def interactive_loop(stats_path, classes, interval=300, agg_freq="5T", minutes_window=60):
     plt.ion()
     from visualize import (
         plot_line_chart,
@@ -76,7 +76,7 @@ def interactive_loop(stats_path, classes, interval=30, agg_freq="1T", minutes_wi
         plt.ioff()
 
 
-def headless_loop(stats_path, classes, interval=30, agg_freq="1T", minutes_window=10):
+def headless_loop(stats_path, classes, interval=300, agg_freq="5T", minutes_window=60):
     from visualize import (
         plot_line_chart,
         plot_grouped_bar_minute,
@@ -115,10 +115,10 @@ def headless_loop(stats_path, classes, interval=30, agg_freq="1T", minutes_windo
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", default="data/runtime/stats.json", help="path to stats.json")
-    parser.add_argument("--interval", type=int, default=30, help="seconds between updates")
+    parser.add_argument("--interval", type=int, default=300, help="seconds between updates")
     parser.add_argument("--headless", action="store_true", help="run in headless mode (save PNGs)")
-    parser.add_argument("--freq", default="1T", help="aggregation freq passed to pipeline")
-    parser.add_argument("--minutes", type=int, default=10, help="how many minutes of data to load")
+    parser.add_argument("--freq", default="5T", help="aggregation freq passed to pipeline")
+    parser.add_argument("--minutes", type=int, default=60, help="how many minutes of data to load")
     parser.add_argument("--classes", nargs="+", default=DEFAULT_CLASSES)
     args = parser.parse_args()
     if args.headless:

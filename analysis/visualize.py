@@ -79,7 +79,7 @@ def plot_grouped_bar_minute(df, classes, out_path: str = "data/figures/grouped_b
             pass
     fig.patch.set_facecolor('white')
     ax.set_facecolor('white')
-    ax.set_title("Grouped Bar - Per minute")
+    ax.set_title("Grouped Bar - Per 5 Minutes")
     ax.set_xlabel("Time")
     ax.set_ylabel("Count")
     old_leg = ax.get_legend()
