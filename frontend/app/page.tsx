@@ -5,6 +5,13 @@ import RealtimeStats from "./components/stats/RealtimeStats";
 import VehicleDistributionChart from "./components/charts/VehicleDistributionChart";
 import VehicleLineChart from "./components/charts/VehicleLineChart";
 import AnalyticsStats from "./components/analytics/AnalyticsStats";
+import GroupedBarChart from "./components/charts/GroupedBarChart";
+import AreaChart from "./components/charts/AreaChart";
+import HistTotalChart from "./components/charts/HistTotalChart";
+import BoxplotChart from "./components/charts/BoxplotChart";
+import RollingAvgChart from "./components/charts/RollingAvgChart";
+import PeaksChart from "./components/charts/PeaksChart";
+import StackedBarPctChart from "./components/charts/StackedBarPctChart";
 
 export default function DashboardPage() {
   return (
@@ -77,15 +84,138 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* --- KHỐI 4: PHÂN TÍCH CHUYÊN SÂU (AI Analytics) --- */}
+        {/* --- KHỐI 4: PHÂN TÍCH CHUYÊN SÂU (AI Analytics) ---
         <h2 className="text-xl font-bold text-white pt-4 border-t border-slate-800">
           Phân tích chuyên sâu (Advanced Analytics)
         </h2>
         <div className="grid gap-6 xl:grid-cols-1">
           <AnalyticsStats cameraId={0} cameraLabel="Camera 01" />
           <AnalyticsStats cameraId={1} cameraLabel="Camera 02" />
+        </div> */}
+
+        {/* --- KHỐI 5: CÁC BIỂU ĐỒ CHUYÊN SÂU TỪ 7 API MỚI --- */}
+        <h2 className="text-xl font-bold text-white pt-6 border-t border-slate-800">
+          Biểu đồ chuyên sâu từ lịch sử (Database Charts)
+        </h2>
+
+        {/* Grouped Bar cho 2 camera */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-slate-200">
+            Grouped Bar theo loại phương tiện
+          </h3>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 01</p>
+              <GroupedBarChart cameraId={0} />
+            </div>
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 02</p>
+              <GroupedBarChart cameraId={1} />
+            </div>
+          </div>
         </div>
 
+        {/* Stacked Area cho 2 camera */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-slate-200">
+            Stacked Area (lưu lượng theo thời gian)
+          </h3>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 01</p>
+              <AreaChart cameraId={0} />
+            </div>
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 02</p>
+              <AreaChart cameraId={1} />
+            </div>
+          </div>
+        </div>
+
+        {/* Rolling Average cho 2 camera */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-slate-200">
+            Rolling Average (làm mượt lưu lượng)
+          </h3>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 01</p>
+              <RollingAvgChart cameraId={0} />
+            </div>
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 02</p>
+              <RollingAvgChart cameraId={1} />
+            </div>
+          </div>
+        </div>
+
+        {/* Histogram total cho 2 camera */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-slate-200">
+            Histogram tổng phương tiện
+          </h3>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 01</p>
+              <HistTotalChart cameraId={0} />
+            </div>
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 02</p>
+              <HistTotalChart cameraId={1} />
+            </div>
+          </div>
+        </div>
+
+        {/* Boxplot cho 2 camera */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-slate-200">
+            Boxplot phân bố theo loại phương tiện
+          </h3>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 01</p>
+              <BoxplotChart cameraId={0} />
+            </div>
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 02</p>
+              <BoxplotChart cameraId={1} />
+            </div>
+          </div>
+        </div>
+
+        {/* Stacked Bar % cho 2 camera */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-slate-200">
+            Tỉ lệ phần trăm theo loại phương tiện (Stacked %)
+          </h3>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 01</p>
+              <StackedBarPctChart cameraId={0} />
+            </div>
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 02</p>
+              <StackedBarPctChart cameraId={1} />
+            </div>
+          </div>
+        </div>
+
+        {/* Peaks cho 2 camera */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-slate-200">
+            Phát hiện đỉnh lưu lượng (Peaks)
+          </h3>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 01</p>
+              <PeaksChart cameraId={0} />
+            </div>
+            <div className="xl:col-span-1">
+              <p className="mb-2 text-xs text-slate-400">Camera 02</p>
+              <PeaksChart cameraId={1} />
+            </div>
+          </div>
+        </div>
       </section>
     </div>
   );
