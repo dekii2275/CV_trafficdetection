@@ -18,7 +18,7 @@
 | 👤 Họ và tên      | 🆔 Mã sinh viên     | 🐙 Tên GitHub        | 🛠️ Đóng góp  |
 |------------------|--------------------|----------------------|----------------------|
 | Nguyễn Minh Anh  | 23001495           | Dekii2275            | Counting Vehicle     |
-| Nguyễn Trung Kiên| 23001530            | nguyenkien0912       | Analysis             |
+| Nguyễn Trung Kiên| 23001530            | kientrung2005       | Analysis             |
 | Nguyễn Thế Quang | 23001549            | thequang05           | Model                |
 | Trần Đăng Tài    | 23001558            | TaiTranDang145       | Backend              |
 | Nguyễn Doãn Toàn | 23001564            | DToan010605          | Frontend             |
@@ -130,5 +130,6 @@ Dự án **Vehicle Counting AI** là một hệ thống đếm phương tiện g
 ---
 
 *Cập nhật lần cuối: 🗓️ Tháng 11/2025*
+
 
 
